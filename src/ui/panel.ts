@@ -55,14 +55,63 @@ const HOTKEY = { ctrl: true, shift: true, key: "S" };
 const DRAG_THRESHOLD = 6;
 const COLLAPSE_DELAY_MS = 160;
 
+const lightningIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M13 2 6 13h5l-1 9 8-12h-5l0-8Z"></path>
+</svg>`;
+
+const powerIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M12 3v7"></path>
+  <path d="M7 5.5a8 8 0 1 0 10 0"></path>
+</svg>`;
+
+const pauseIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M9 5v14"></path>
+  <path d="M15 5v14"></path>
+</svg>`;
+
+const restoreIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+  <path d="M3 4v5h5"></path>
+</svg>`;
+
+const modeIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M12 3a9 9 0 1 0 0 18"></path>
+  <path d="M12 3a9 9 0 0 1 0 18"></path>
+</svg>`;
+
+const placementIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M8 7 4 12l4 5"></path>
+  <path d="M16 7l4 5-4 5"></path>
+  <path d="M5 12h14"></path>
+</svg>`;
+
+const statusIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M12 8v4"></path>
+  <path d="M12 16h.01"></path>
+  <circle cx="12" cy="12" r="9"></circle>
+</svg>`;
+
+const closeIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="m6 6 12 12"></path>
+  <path d="M18 6 6 18"></path>
+</svg>`;
+
 const TOOL_ACTIONS: Array<{ action: Action; icon: string }> = [
-  { action: "toggle-enabled", icon: "⏻" },
-  { action: "toggle-pause", icon: "⏸" },
-  { action: "restore", icon: "⟳" },
-  { action: "mode", icon: "◐" },
-  { action: "placement", icon: "⇆" },
-  { action: "status", icon: "◎" },
-  { action: "hide", icon: "✕" }
+  { action: "toggle-enabled", icon: powerIcon },
+  { action: "toggle-pause", icon: pauseIcon },
+  { action: "restore", icon: restoreIcon },
+  { action: "mode", icon: modeIcon },
+  { action: "placement", icon: placementIcon },
+  { action: "status", icon: statusIcon },
+  { action: "hide", icon: closeIcon }
 ];
 
 export function mountPanel(initialState: PanelState, handlers: PanelHandlers): void {
@@ -88,7 +137,10 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     <style>${styles}</style>
     <div class="cbx-cluster" data-side="right">
       <div class="cbx-track" aria-hidden="true"></div>
-      <button class="cbx-anchor" type="button" aria-label="ThreadSprint">⚡</button>
+      <button class="cbx-anchor" type="button" aria-label="ThreadSprint">
+        <span class="cbx-anchor-icon" aria-hidden="true">${lightningIcon}</span>
+        <span class="cbx-anchor-label">ON</span>
+      </button>
       <div class="cbx-toolbar cbx-hidden"></div>
       <div class="cbx-tooltip cbx-hidden"></div>
       <div class="cbx-detail cbx-hidden"></div>
@@ -224,7 +276,10 @@ function renderState(): void {
     return;
   }
 
-  anchorEl.textContent = state.enabled ? "⚡ ON" : "⚡ OFF";
+  const label = anchorEl.querySelector<HTMLElement>(".cbx-anchor-label");
+  if (label) {
+    label.textContent = state.enabled ? "ON" : "OFF";
+  }
   anchorEl.classList.toggle("cbx-anchor-off", !state.enabled);
   clusterEl.dataset.side = detectSide();
 
@@ -359,7 +414,7 @@ function createToolButton(action: Action, icon: string): HTMLButtonElement {
   btn.className = "cbx-tool";
   btn.dataset.cbxAction = action;
   btn.setAttribute("data-cbx-action", action);
-  btn.textContent = icon;
+  btn.innerHTML = icon;
   return btn;
 }
 
@@ -583,9 +638,12 @@ const styles = `
 .cbx-anchor{
   position:relative;
   z-index:3;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
   border:1px solid rgba(148,163,184,.5);
   border-radius:999px;
-  padding:7px 11px;
+  padding:7px 12px 7px 10px;
   font-size:12px;
   font-weight:600;
   background:rgba(255,255,255,.9);
@@ -596,6 +654,24 @@ const styles = `
 }
 .cbx-anchor-off{
   opacity:.78;
+}
+.cbx-anchor-icon{
+  display:inline-flex;
+  width:14px;
+  height:14px;
+}
+.cbx-anchor-icon svg,
+.cbx-tool svg{
+  width:100%;
+  height:100%;
+  stroke:currentColor;
+  fill:none;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.cbx-anchor-label{
+  letter-spacing:.2px;
 }
 .cbx-toolbar{
   position:absolute;
@@ -610,6 +686,8 @@ const styles = `
   left:calc(100% + 8px);
 }
 .cbx-tool{
+  display:grid;
+  place-items:center;
   width:30px;
   height:30px;
   border:1px solid #cbd5e1;
@@ -619,6 +697,10 @@ const styles = `
   font-size:14px;
   cursor:pointer;
   box-shadow:0 4px 14px rgba(15,23,42,.12);
+}
+.cbx-tool svg{
+  width:15px;
+  height:15px;
 }
 .cbx-tooltip{
   position:absolute;
