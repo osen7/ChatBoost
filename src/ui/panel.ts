@@ -96,7 +96,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   host.style.position = "fixed";
   host.style.right = "14px";
   host.style.bottom = "22px";
-  host.style.zIndex = "2147483647";
+  host.style.zIndex = "999999";
 
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `
@@ -560,12 +560,17 @@ function installAutoAvoidance(hostEl: HTMLDivElement): () => void {
     applySmartPlacement(hostEl);
   };
   const throttledApply = throttle(apply, 160);
+  const observer = new MutationObserver(() => throttledApply());
 
   window.addEventListener("resize", throttledApply, true);
+  window.addEventListener("scroll", throttledApply, true);
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true });
   window.setTimeout(apply, 90);
 
   return () => {
     window.removeEventListener("resize", throttledApply, true);
+    window.removeEventListener("scroll", throttledApply, true);
+    observer.disconnect();
   };
 }
 
@@ -574,9 +579,11 @@ function applyPlacementByMode(placement: PanelPlacement): void {
     return;
   }
   const width = Math.max(host.offsetWidth, 64);
+  const height = Math.max(host.offsetHeight, 40);
   const sideGap = 14;
+  const safeBottom = detectBottomSafeInset(host);
   const left = Math.max(window.innerWidth - width - sideGap, 6);
-  const top = Math.max(window.innerHeight - Math.max(host.offsetHeight, 40) - 22, 6);
+  const top = Math.max(window.innerHeight - safeBottom - height, 6);
   host.style.left = `${Math.round(left)}px`;
   host.style.top = `${Math.round(top)}px`;
   host.style.right = "auto";
@@ -585,7 +592,8 @@ function applyPlacementByMode(placement: PanelPlacement): void {
 
 function applySmartPlacement(hostEl: HTMLDivElement): void {
   const sideGap = 12;
-  const candidatesBottom = [26, 96, 166, 236];
+  const safeBottom = detectBottomSafeInset(hostEl);
+  const candidatesBottom = [safeBottom, safeBottom + 70, safeBottom + 140, safeBottom + 210];
   const width = Math.max(hostEl.offsetWidth, 64);
   const height = Math.max(hostEl.offsetHeight, 40);
 
@@ -601,6 +609,37 @@ function applySmartPlacement(hostEl: HTMLDivElement): void {
     hostEl.style.bottom = "auto";
     return;
   }
+}
+
+function detectBottomSafeInset(hostEl: HTMLElement): number {
+  let inset = 26;
+  const viewportHeight = window.innerHeight;
+  const viewportWidth = window.innerWidth;
+  const nodes = document.querySelectorAll<HTMLElement>("body *");
+  for (const node of nodes) {
+    if (node === hostEl || hostEl.contains(node)) {
+      continue;
+    }
+    const style = window.getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden") {
+      continue;
+    }
+    if (style.position !== "fixed" && style.position !== "sticky") {
+      continue;
+    }
+    const rect = node.getBoundingClientRect();
+    if (rect.height < 24 || rect.width < 24) {
+      continue;
+    }
+    if (rect.right < viewportWidth - 360) {
+      continue;
+    }
+    if (rect.top > viewportHeight - 260) {
+      const candidate = viewportHeight - rect.top + 12;
+      inset = Math.max(inset, candidate);
+    }
+  }
+  return inset;
 }
 
 function snapToEdge(hostEl: HTMLDivElement): void {
