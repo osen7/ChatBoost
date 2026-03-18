@@ -1,4 +1,5 @@
 import type { ChatSiteAdapter } from "../adapters/base";
+import { readControlAction } from "../features/messageControls";
 import { applyRenderMode } from "./renderState";
 import { Scheduler } from "./scheduler";
 import { SafetyGuard } from "./safety";
@@ -10,6 +11,7 @@ export class OptimizationEngine {
   private readonly scheduler = new Scheduler();
   private readonly safety = new SafetyGuard();
   private readonly onScroll = throttle(() => this.scheduleUpdate(), 80);
+  private readonly onClick = (event: MouseEvent) => this.handleClick(event);
   private readonly observer = new MutationObserver(() => this.scheduleRefresh());
   private stopped = false;
   private thread: ThreadState;
@@ -28,6 +30,7 @@ export class OptimizationEngine {
     }
 
     window.addEventListener("scroll", this.onScroll, { passive: true });
+    document.addEventListener("click", this.onClick, true);
     this.observer.observe(root, { subtree: true, childList: true, characterData: true });
     this.refreshThread();
     this.scheduleUpdate();
@@ -39,7 +42,15 @@ export class OptimizationEngine {
     }
     this.stopped = true;
     window.removeEventListener("scroll", this.onScroll);
+    document.removeEventListener("click", this.onClick, true);
     this.observer.disconnect();
+  }
+
+  restoreAll(): void {
+    for (const msg of this.thread.messages) {
+      msg.flags.isPinned = false;
+      applyRenderMode(msg, "full");
+    }
   }
 
   private scheduleRefresh(): void {
@@ -87,6 +98,23 @@ export class OptimizationEngine {
     if (this.safety.shouldStop(this.adapter)) {
       this.stop();
     }
+  }
+
+  private handleClick(event: MouseEvent): void {
+    const control = readControlAction(event.target);
+    if (!control) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+
+    const msg = this.thread.messages.find((item) => item.id === control.messageId);
+    if (!msg) {
+      return;
+    }
+
+    msg.flags.isPinned = control.action === "expand";
+    this.scheduleUpdate();
   }
 }
 

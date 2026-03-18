@@ -1,9 +1,11 @@
-import { bootstrap, shutdown } from "./bootstrap";
+import { bootstrap, shutdown, syncEnabledState } from "./bootstrap";
 
 chrome.storage.sync.get(["enabled"], (result) => {
   const enabled = result.enabled !== false;
-  if (enabled) {
-    bootstrap();
+  syncEnabledState(enabled);
+  bootstrap();
+  if (!enabled) {
+    shutdown();
   }
 });
 
@@ -12,7 +14,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     return;
   }
 
-  if (changes.enabled.newValue === false) {
+  const enabled = changes.enabled.newValue !== false;
+  syncEnabledState(enabled);
+
+  if (!enabled) {
     shutdown();
     return;
   }

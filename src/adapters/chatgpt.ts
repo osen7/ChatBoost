@@ -2,6 +2,8 @@ import type { ChatSiteAdapter } from "./base";
 import type { MessageRole } from "../shared/types";
 
 const HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
+const fallbackIds = new WeakMap<HTMLElement, string>();
+let fallbackSeq = 0;
 
 export class ChatGptAdapter implements ChatSiteAdapter {
   site = "chatgpt";
@@ -24,22 +26,27 @@ export class ChatGptAdapter implements ChatSiteAdapter {
     const nodes = root.querySelectorAll<HTMLElement>(
       "article[data-testid^='conversation-turn'], article, [data-message-author-role]"
     );
-    return Array.from(new Set(nodes)).filter((el) => el.isConnected);
+    return Array.from(nodes).filter((el) => el.isConnected);
   }
 
   getMessageId(el: HTMLElement): string {
-    const nativeId =
-      el.getAttribute("data-message-id") ??
-      el.getAttribute("data-testid") ??
-      el.id;
+    const nativeId = this.readNativeId(el);
     if (nativeId) {
       return `native:${nativeId}`;
     }
 
+    const cached = fallbackIds.get(el);
+    if (cached) {
+      return cached;
+    }
+
     const role = this.getRole(el);
-    const text = (el.textContent ?? "").trim().slice(0, 240);
-    const hash = stableHash(`${role}|${text}`);
-    return `fallback:${hash}`;
+    const text = normalizeText(el.textContent ?? "").slice(0, 400);
+    const hash = stableHash(`${role}|${text}|${fallbackSeq}`);
+    const id = `fallback:${hash}`;
+    fallbackIds.set(el, id);
+    fallbackSeq += 1;
+    return id;
   }
 
   getRole(el: HTMLElement): MessageRole {
@@ -76,6 +83,30 @@ export class ChatGptAdapter implements ChatSiteAdapter {
       el
     );
   }
+
+  private readNativeId(el: HTMLElement): string | null {
+    const direct =
+      el.getAttribute("data-message-id") ??
+      el.getAttribute("data-testid") ??
+      el.id;
+    if (direct) {
+      return direct;
+    }
+
+    const child = el.querySelector<HTMLElement>(
+      "[data-message-id],[data-testid^='conversation-turn-'],[id^='message-']"
+    );
+    if (!child) {
+      return null;
+    }
+
+    return (
+      child.getAttribute("data-message-id") ??
+      child.getAttribute("data-testid") ??
+      child.id ??
+      null
+    );
+  }
 }
 
 function stableHash(input: string): string {
@@ -85,4 +116,8 @@ function stableHash(input: string): string {
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0).toString(16);
+}
+
+function normalizeText(input: string): string {
+  return input.replace(/\s+/g, " ").trim();
 }

@@ -6,11 +6,13 @@
     "strict": true,
     "skipLibCheck": true,
     "types": [
-      "chrome"
+      "chrome",
+      "node"
     ],
     "lib": [
       "ES2022",
-      "DOM"
+      "DOM",
+      "DOM.Iterable"
     ]
   },
   "include": [

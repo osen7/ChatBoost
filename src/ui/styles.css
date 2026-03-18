@@ -19,3 +19,48 @@
   overflow: hidden;
   opacity: 0.66;
 }
+
+.chatboost-control-host {
+  position: sticky;
+  bottom: 8px;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px;
+  pointer-events: none;
+}
+
+.chatboost-control-btn {
+  pointer-events: auto;
+  border: 1px solid #d0d7de;
+  background: #ffffff;
+  color: #1f2328;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.chatboost-panel {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2147483647;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #d0d7de;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.chatboost-panel-btn {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: #ffffff;
+  color: #1f2328;
+  cursor: pointer;
+}
