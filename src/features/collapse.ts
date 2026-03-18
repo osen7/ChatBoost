@@ -1,4 +1,5 @@
 import { MESSAGE_ATTR } from "../shared/constants";
+import { restoreDehydratedContent } from "./placeholder";
 import type { MessageModel } from "../shared/types";
 
 const COLLAPSED_CLASS = "chatboost-collapsed";
@@ -24,7 +25,5 @@ function showContent(msg: MessageModel): void {
   if (!msg.contentEl || msg.contentEl === msg.el) {
     return;
   }
-  const prev = msg.contentEl.dataset.chatboostPrevDisplay;
-  msg.contentEl.style.display = prev ?? "";
-  delete msg.contentEl.dataset.chatboostPrevDisplay;
+  restoreDehydratedContent(msg);
 }

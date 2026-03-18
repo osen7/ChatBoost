@@ -26,6 +26,7 @@ export interface MessageModel {
   flags: MessageFlags;
   renderMode: RenderMode;
   previewText: string;
+  dehydratedHtml?: string;
   optimizationReason?: string;
   lastModeChangedAt?: number;
 }
