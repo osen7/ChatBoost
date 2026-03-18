@@ -1,4 +1,5 @@
 import type { ChatSiteAdapter } from "./base";
+import { buildPathThreadId, extractThreadIdFromPath } from "./threadId";
 import type { MessageRole } from "../shared/types";
 
 const HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
@@ -17,9 +18,9 @@ export class ChatGptAdapter implements ChatSiteAdapter {
   }
 
   getThreadId(): string {
-    const match = window.location.pathname.match(/\/c\/([^/]+)/);
-    if (match?.[1]) {
-      return `c:${match[1]}`;
+    const pathId = extractThreadIdFromPath(window.location.pathname, "c");
+    if (pathId) {
+      return `c:${pathId}`;
     }
 
     const domId = this.readThreadIdFromDom();
@@ -27,8 +28,7 @@ export class ChatGptAdapter implements ChatSiteAdapter {
       return `dom:${domId}`;
     }
 
-    const search = window.location.search || "";
-    return `path:${window.location.pathname}${search}`;
+    return buildPathThreadId(window.location.pathname, window.location.search);
   }
 
   getMessageElements(): HTMLElement[] {

@@ -14,6 +14,7 @@ let modeState: PerformanceMode = defaultMode;
 let placementState: PanelPlacement = "auto";
 let statsTimer: number | null = null;
 let urlWatchTimer: number | null = null;
+let conversationChangeTimer: number | null = null;
 let stopRouteHooks: (() => void) | null = null;
 let lastUrl = "";
 let lastThreadId = "";
@@ -190,7 +191,7 @@ function startUrlWatch(): void {
     return;
   }
   urlWatchTimer = window.setInterval(() => {
-    detectConversationChange();
+    scheduleConversationChangeCheck();
   }, 1500);
 }
 
@@ -200,6 +201,11 @@ function stopUrlWatch(): void {
   }
   window.clearInterval(urlWatchTimer);
   urlWatchTimer = null;
+
+  if (conversationChangeTimer !== null) {
+    window.clearTimeout(conversationChangeTimer);
+    conversationChangeTimer = null;
+  }
 }
 
 function startRouteHooks(): void {
@@ -207,7 +213,7 @@ function startRouteHooks(): void {
     return;
   }
 
-  const notify = () => detectConversationChange();
+  const notify = () => scheduleConversationChangeCheck();
   const onPopstate = () => notify();
   const onHash = () => notify();
   const onCustom = () => notify();
@@ -243,6 +249,16 @@ function startRouteHooks(): void {
 
 function stopRouteWatchHooks(): void {
   stopRouteHooks?.();
+}
+
+function scheduleConversationChangeCheck(): void {
+  if (conversationChangeTimer !== null) {
+    return;
+  }
+  conversationChangeTimer = window.setTimeout(() => {
+    conversationChangeTimer = null;
+    detectConversationChange();
+  }, 120);
 }
 
 function detectConversationChange(): void {
