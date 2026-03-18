@@ -193,8 +193,9 @@ export class OptimizationEngine {
       const viewport = getViewportInfo();
       const effectiveConfig = getEffectiveConfig(this.config, this.pressureLevel);
       const measureBufferScreens = Math.max(effectiveConfig.collapseBufferScreens + 1, 2);
+      const protectedLatestIds = getLatestAssistantIds(this.thread.messages, 2);
       for (const msg of this.thread.messages) {
-        if (!shouldMeasureMessage(msg, viewport, measureBufferScreens)) {
+        if (!shouldMeasureMessage(msg, viewport, measureBufferScreens, protectedLatestIds.has(msg.id))) {
           continue;
         }
         const rect = msg.el.getBoundingClientRect();
@@ -206,10 +207,12 @@ export class OptimizationEngine {
 
       const updates = this.thread.messages.map((msg) => ({
         msg,
-        mode: decideRenderMode(msg, viewport, effectiveConfig, {
-          direction: this.scrollDirection,
-          speedPxPerSec: this.scrollSpeedPxPerSec
-        }),
+        mode: protectedLatestIds.has(msg.id)
+          ? ("full" as const)
+          : decideRenderMode(msg, viewport, effectiveConfig, {
+              direction: this.scrollDirection,
+              speedPxPerSec: this.scrollSpeedPxPerSec
+            }),
         reason: getOptimizationReason(msg, viewport, effectiveConfig)
       }));
 
@@ -518,9 +521,18 @@ function decidePressureLevel(input: {
 function shouldMeasureMessage(
   msg: MessageModel,
   viewport: ReturnType<typeof getViewportInfo>,
-  bufferScreens: number
+  bufferScreens: number,
+  latestProtected: boolean
 ): boolean {
-  if (msg.flags.isStreaming || msg.flags.isPinned || msg.flags.isTemporarilyRevealed) {
+  if (latestProtected || msg.flags.isStreaming || msg.flags.isPinned || msg.flags.isTemporarilyRevealed) {
+    return true;
+  }
+
+  const distanceScreens = getDistanceInScreens(msg.metrics, viewport);
+  if (Math.abs(distanceScreens - bufferScreens) <= 0.6) {
+    return true;
+  }
+  if (Date.now() - msg.metrics.lastMeasuredAt > 3000) {
     return true;
   }
 
@@ -528,6 +540,18 @@ function shouldMeasureMessage(
   const minTop = viewport.top - margin;
   const maxBottom = viewport.bottom + margin;
   return msg.metrics.bottom >= minTop && msg.metrics.top <= maxBottom;
+}
+
+function getLatestAssistantIds(messages: MessageModel[], keepCount: number): Set<string> {
+  const protectedIds = new Set<string>();
+  for (let i = messages.length - 1; i >= 0 && protectedIds.size < keepCount; i -= 1) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") {
+      continue;
+    }
+    protectedIds.add(msg.id);
+  }
+  return protectedIds;
 }
 
 function throttle<T extends (...args: unknown[]) => void>(fn: T, waitMs: number): T {
