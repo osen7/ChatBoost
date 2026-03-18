@@ -1,12 +1,14 @@
-import { bootstrap, shutdown, syncEnabledState, syncModeState } from "./bootstrap";
+import { bootstrap, shutdown, syncEnabledState, syncModeState, syncPlacementState } from "./bootstrap";
 import { defaultMode } from "../shared/config";
-import type { PerformanceMode } from "../shared/types";
+import type { PanelPlacement, PerformanceMode } from "../shared/types";
 
-chrome.storage.sync.get(["enabled", "mode"], (result) => {
+chrome.storage.sync.get(["enabled", "mode", "placement"], (result) => {
   const enabled = result.enabled !== false;
   const mode = sanitizeMode(result.mode);
+  const placement = sanitizePlacement(result.placement);
   syncEnabledState(enabled);
   syncModeState(mode);
+  syncPlacementState(placement);
   bootstrap();
   if (!enabled) {
     shutdown();
@@ -20,6 +22,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
   if (changes.mode) {
     syncModeState(sanitizeMode(changes.mode.newValue));
+  }
+  if (changes.placement) {
+    syncPlacementState(sanitizePlacement(changes.placement.newValue));
   }
   if (changes.enabled) {
     const enabled = changes.enabled.newValue !== false;
@@ -37,4 +42,11 @@ function sanitizeMode(value: unknown): PerformanceMode {
     return value;
   }
   return defaultMode;
+}
+
+function sanitizePlacement(value: unknown): PanelPlacement {
+  if (value === "auto" || value === "left" || value === "right") {
+    return value;
+  }
+  return "auto";
 }

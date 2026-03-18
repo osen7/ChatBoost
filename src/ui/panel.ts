@@ -1,9 +1,11 @@
 import { PANEL_ATTR } from "../shared/constants";
+import type { PanelPlacement } from "../shared/types";
 
 interface PanelHandlers {
   onToggleEnabled(nextEnabled: boolean): void;
   onTogglePause(nextPaused: boolean): void;
   onCycleMode(): void;
+  onCyclePlacement(): void;
   onRestoreAll(): void;
 }
 
@@ -11,6 +13,9 @@ export interface PanelState {
   enabled: boolean;
   paused: boolean;
   modeLabel: string;
+  modeHint: string;
+  placementLabel: string;
+  placement: PanelPlacement;
   collapsedCount: number;
   placeholderCount: number;
   totalCount: number;
@@ -28,9 +33,12 @@ let pauseBtn: HTMLButtonElement | null = null;
 let restoreBtn: HTMLButtonElement | null = null;
 let hideBtn: HTMLButtonElement | null = null;
 let statusEl: HTMLDivElement | null = null;
+let hintEl: HTMLDivElement | null = null;
 let statsEl: HTMLDivElement | null = null;
 let modeBtn: HTMLButtonElement | null = null;
+let placementBtn: HTMLButtonElement | null = null;
 let autoPlaced = true;
+let appliedPlacement: PanelPlacement | null = null;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
 
@@ -38,6 +46,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   handlersRef = handlers;
   state = initialState;
   autoPlaced = true;
+  appliedPlacement = null;
 
   if (host?.isConnected) {
     renderState();
@@ -63,8 +72,10 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
           <button class="cbx-icon-btn" data-cbx-action="collapse" type="button" aria-label="Collapse">×</button>
         </div>
         <div class="cbx-status" part="status"></div>
+        <div class="cbx-hint"></div>
         <div class="cbx-row">
           <button class="cbx-btn" data-cbx-action="mode" type="button"></button>
+          <button class="cbx-btn" data-cbx-action="placement" type="button"></button>
         </div>
         <div class="cbx-row">
           <button class="cbx-btn" data-cbx-action="toggle-enabled" type="button"></button>
@@ -85,9 +96,11 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   enableBtn = shadow.querySelector("[data-cbx-action='toggle-enabled']");
   pauseBtn = shadow.querySelector("[data-cbx-action='toggle-pause']");
   modeBtn = shadow.querySelector("[data-cbx-action='mode']");
+  placementBtn = shadow.querySelector("[data-cbx-action='placement']");
   restoreBtn = shadow.querySelector("[data-cbx-action='restore']");
   hideBtn = shadow.querySelector("[data-cbx-action='hide']");
   statusEl = shadow.querySelector(".cbx-status");
+  hintEl = shadow.querySelector(".cbx-hint");
   statsEl = shadow.querySelector(".cbx-stats");
 
   const clickHandler = (event: Event) => {
@@ -113,6 +126,10 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     }
     if (action === "mode") {
       handlersRef?.onCycleMode();
+      return;
+    }
+    if (action === "placement") {
+      handlersRef?.onCyclePlacement();
       return;
     }
     if (action === "toggle-pause") {
@@ -169,12 +186,15 @@ export function unmountPanel(): void {
   enableBtn = null;
   pauseBtn = null;
   modeBtn = null;
+  placementBtn = null;
   restoreBtn = null;
   hideBtn = null;
   statusEl = null;
+  hintEl = null;
   statsEl = null;
   state = null;
   handlersRef = null;
+  appliedPlacement = null;
 }
 
 export function updatePanelState(nextState: PanelState): void {
@@ -183,7 +203,17 @@ export function updatePanelState(nextState: PanelState): void {
 }
 
 function renderState(): void {
-  if (!state || !fabBtn || !enableBtn || !pauseBtn || !statusEl || !statsEl || !modeBtn) {
+  if (
+    !state ||
+    !fabBtn ||
+    !enableBtn ||
+    !pauseBtn ||
+    !statusEl ||
+    !hintEl ||
+    !statsEl ||
+    !modeBtn ||
+    !placementBtn
+  ) {
     return;
   }
 
@@ -193,13 +223,20 @@ function renderState(): void {
   pauseBtn.disabled = !state.enabled;
   modeBtn.textContent = `Mode: ${state.modeLabel}`;
   modeBtn.disabled = state.paused;
+  placementBtn.textContent = `Place: ${state.placementLabel}`;
 
   statusEl.textContent = `Mode: ${state.modeLabel}`;
+  hintEl.textContent = state.modeHint;
   statsEl.textContent = [
     `Total: ${state.totalCount}`,
     `Collapsed: ${state.collapsedCount}`,
     `Placeholder: ${state.placeholderCount}`
   ].join("  |  ");
+
+  if (appliedPlacement !== state.placement) {
+    applyPlacementByMode(state.placement);
+    appliedPlacement = state.placement;
+  }
 }
 
 function toggleExpanded(): void {
@@ -293,6 +330,29 @@ function installAutoAvoidance(hostEl: HTMLDivElement): () => void {
     window.removeEventListener("resize", throttledApply, true);
     window.removeEventListener("scroll", throttledApply, true);
   };
+}
+
+function applyPlacementByMode(placement: PanelPlacement): void {
+  if (!host) {
+    return;
+  }
+  if (placement === "auto") {
+    autoPlaced = true;
+    applySmartPlacement(host);
+    return;
+  }
+
+  autoPlaced = false;
+  const width = Math.max(host.offsetWidth, 60);
+  const left =
+    placement === "left"
+      ? 14
+      : Math.max(window.innerWidth - width - 14, 6);
+  const top = Math.max(window.innerHeight - Math.max(host.offsetHeight, 36) - 22, 6);
+  host.style.left = `${Math.round(left)}px`;
+  host.style.top = `${Math.round(top)}px`;
+  host.style.right = "auto";
+  host.style.bottom = "auto";
 }
 
 function applySmartPlacement(hostEl: HTMLDivElement): void {
@@ -423,6 +483,7 @@ const styles = `
   line-height:1;
 }
 .cbx-status{ font-size:12px; opacity:.85; margin-bottom:8px; }
+.cbx-hint{ font-size:11px; color:#334155; opacity:.85; margin-bottom:8px; }
 .cbx-row{ display:flex; gap:6px; margin-bottom:6px; }
 .cbx-btn{
   flex:1;

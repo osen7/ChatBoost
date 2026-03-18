@@ -2,7 +2,7 @@ import { resolveAdapter } from "../adapters";
 import { OptimizationEngine } from "../core/engine";
 import { defaultMode, getConfigForMode } from "../shared/config";
 import { EXT_ROOT_ATTR } from "../shared/constants";
-import type { PerformanceMode } from "../shared/types";
+import type { PanelPlacement, PerformanceMode } from "../shared/types";
 import { mountPanel, unmountPanel, updatePanelState } from "../ui/panel";
 import "../ui/styles.css";
 
@@ -10,6 +10,7 @@ let engine: OptimizationEngine | null = null;
 let enabledState = true;
 let pausedState = false;
 let modeState: PerformanceMode = defaultMode;
+let placementState: PanelPlacement = "auto";
 let statsTimer: number | null = null;
 
 export function bootstrap(): void {
@@ -22,6 +23,9 @@ export function bootstrap(): void {
     },
     onCycleMode() {
       setMode(nextMode(modeState));
+    },
+    onCyclePlacement() {
+      setPlacement(nextPlacement(placementState));
     },
     onRestoreAll() {
       engine?.restoreAll();
@@ -83,6 +87,11 @@ export function syncModeState(mode: PerformanceMode): void {
   refreshPanel();
 }
 
+export function syncPlacementState(placement: PanelPlacement): void {
+  placementState = placement;
+  refreshPanel();
+}
+
 export function setPaused(paused: boolean): void {
   pausedState = paused;
   if (paused) {
@@ -99,6 +108,12 @@ export function setMode(mode: PerformanceMode): void {
   modeState = mode;
   chrome.storage.sync.set({ mode });
   engine?.updateConfig(getConfigForMode(modeState));
+  refreshPanel();
+}
+
+export function setPlacement(placement: PanelPlacement): void {
+  placementState = placement;
+  chrome.storage.sync.set({ placement });
   refreshPanel();
 }
 
@@ -127,6 +142,9 @@ function buildPanelState() {
     enabled: enabledState,
     paused: pausedState,
     modeLabel: modeToLabel(modeState),
+    modeHint: modeToHint(modeState),
+    placementLabel: placementToLabel(placementState),
+    placement: placementState,
     collapsedCount: stats.collapsed,
     placeholderCount: stats.placeholder,
     totalCount: stats.total
@@ -164,4 +182,22 @@ function nextMode(mode: PerformanceMode): PerformanceMode {
   if (mode === "lite") return "balanced";
   if (mode === "balanced") return "aggressive";
   return "lite";
+}
+
+function modeToHint(mode: PerformanceMode): string {
+  if (mode === "lite") return "保留更多完整消息，干扰最小";
+  if (mode === "aggressive") return "更激进折叠和占位，优先性能";
+  return "性能与阅读体验平衡";
+}
+
+function placementToLabel(placement: PanelPlacement): string {
+  if (placement === "left") return "Left";
+  if (placement === "right") return "Right";
+  return "Auto";
+}
+
+function nextPlacement(placement: PanelPlacement): PanelPlacement {
+  if (placement === "auto") return "right";
+  if (placement === "right") return "left";
+  return "auto";
 }

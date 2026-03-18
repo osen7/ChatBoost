@@ -42,6 +42,7 @@ export interface EngineConfig {
 }
 
 export type PerformanceMode = "lite" | "balanced" | "aggressive";
+export type PanelPlacement = "auto" | "left" | "right";
 
 export interface ViewportInfo {
   top: number;
