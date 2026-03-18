@@ -23,6 +23,7 @@ export class OptimizationEngine {
   }
 
   start(): void {
+    this.stopped = false;
     const root = this.adapter.getThreadRoot();
     if (!root) {
       return;
@@ -74,6 +75,22 @@ export class OptimizationEngine {
 
   updateConfig(nextConfig: EngineConfig): void {
     this.config = nextConfig;
+    this.scheduleUpdate();
+  }
+
+  reset(): void {
+    if (this.stopped) {
+      return;
+    }
+    this.restoreAll();
+    this.observer.disconnect();
+    this.thread = createEmptyThread(this.adapter.site);
+
+    const root = this.adapter.getThreadRoot();
+    if (root) {
+      this.observer.observe(root, { subtree: true, childList: true, characterData: true });
+    }
+    this.refreshThread();
     this.scheduleUpdate();
   }
 

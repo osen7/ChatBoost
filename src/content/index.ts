@@ -2,40 +2,31 @@ import { bootstrap, shutdown, syncEnabledState, syncModeState, syncPlacementStat
 import { defaultMode } from "../shared/config";
 import type { PanelPlacement, PerformanceMode } from "../shared/types";
 
-chrome.storage.sync.get(["enabled", "mode", "placement"], (result) => {
-  const enabled = result.enabled !== false;
-  const mode = sanitizeMode(result.mode);
-  const placement = sanitizePlacement(result.placement);
-  syncEnabledState(enabled);
-  syncModeState(mode);
-  syncPlacementState(placement);
-  bootstrap();
-  if (!enabled) {
-    shutdown();
+declare global {
+  interface Window {
+    __CHATBOOST_INIT__?: boolean;
   }
-});
+}
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "sync") {
-    return;
-  }
+if (window.__CHATBOOST_INIT__) {
+  // Avoid duplicate initialization in SPA/content reinjection edge cases.
+  // noop
+} else {
+  window.__CHATBOOST_INIT__ = true;
 
-  if (changes.mode) {
-    syncModeState(sanitizeMode(changes.mode.newValue));
-  }
-  if (changes.placement) {
-    syncPlacementState(sanitizePlacement(changes.placement.newValue));
-  }
-  if (changes.enabled) {
-    const enabled = changes.enabled.newValue !== false;
+  chrome.storage.sync.get(["enabled", "mode", "placement"], (result) => {
+    const enabled = result.enabled !== false;
+    const mode = sanitizeMode(result.mode);
+    const placement = sanitizePlacement(result.placement);
     syncEnabledState(enabled);
+    syncModeState(mode);
+    syncPlacementState(placement);
+    bootstrap();
     if (!enabled) {
       shutdown();
-      return;
     }
-    bootstrap();
-  }
-});
+  });
+}
 
 function sanitizeMode(value: unknown): PerformanceMode {
   if (value === "lite" || value === "balanced" || value === "aggressive") {

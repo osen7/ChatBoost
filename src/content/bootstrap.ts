@@ -1,4 +1,5 @@
 import { resolveAdapter } from "../adapters";
+import type { ChatSiteAdapter } from "../adapters/base";
 import { OptimizationEngine } from "../core/engine";
 import { defaultMode, getConfigForMode } from "../shared/config";
 import { EXT_ROOT_ATTR } from "../shared/constants";
@@ -12,6 +13,10 @@ let pausedState = false;
 let modeState: PerformanceMode = defaultMode;
 let placementState: PanelPlacement = "auto";
 let statsTimer: number | null = null;
+let urlWatchTimer: number | null = null;
+let lastUrl = "";
+let lastThreadId = "";
+let activeAdapter: ChatSiteAdapter | null = null;
 
 export function bootstrap(): void {
   mountPanel(buildPanelState(), {
@@ -48,10 +53,14 @@ export function bootstrap(): void {
     return;
   }
 
+  activeAdapter = adapter;
+  lastUrl = window.location.href;
+  lastThreadId = adapter.getThreadId();
   document.documentElement.setAttribute(EXT_ROOT_ATTR, "1");
   engine = new OptimizationEngine(adapter, getConfigForMode(modeState));
   engine.start();
   startStatsPolling();
+  startUrlWatch();
   refreshPanel();
 }
 
@@ -60,13 +69,13 @@ export function shutdown(): void {
   pausedState = false;
   stopEngineAndRestore();
   stopStatsPolling();
+  stopUrlWatch();
   document.documentElement.removeAttribute(EXT_ROOT_ATTR);
   refreshPanel();
 }
 
 export function setEnabled(enabled: boolean): void {
   enabledState = enabled;
-  chrome.storage.sync.set({ enabled });
 
   if (enabled) {
     bootstrap();
@@ -97,6 +106,7 @@ export function setPaused(paused: boolean): void {
   if (paused) {
     stopEngineAndRestore();
     stopStatsPolling();
+    stopUrlWatch();
     refreshPanel();
     return;
   }
@@ -106,14 +116,12 @@ export function setPaused(paused: boolean): void {
 
 export function setMode(mode: PerformanceMode): void {
   modeState = mode;
-  chrome.storage.sync.set({ mode });
   engine?.updateConfig(getConfigForMode(modeState));
   refreshPanel();
 }
 
 export function setPlacement(placement: PanelPlacement): void {
   placementState = placement;
-  chrome.storage.sync.set({ placement });
   refreshPanel();
 }
 
@@ -126,6 +134,7 @@ function stopEngineAndRestore(): void {
   engine?.stop();
   engine?.restoreAll();
   engine = null;
+  activeAdapter = null;
   document.documentElement.removeAttribute(EXT_ROOT_ATTR);
 }
 
@@ -170,6 +179,34 @@ function stopStatsPolling(): void {
   }
   window.clearInterval(statsTimer);
   statsTimer = null;
+}
+
+function startUrlWatch(): void {
+  if (urlWatchTimer !== null) {
+    return;
+  }
+  urlWatchTimer = window.setInterval(() => {
+    if (!engine || !activeAdapter || !enabledState || pausedState) {
+      return;
+    }
+    const nextUrl = window.location.href;
+    const nextThreadId = activeAdapter.getThreadId();
+    if (nextUrl === lastUrl && nextThreadId === lastThreadId) {
+      return;
+    }
+    lastUrl = nextUrl;
+    lastThreadId = nextThreadId;
+    engine.reset();
+    refreshPanel();
+  }, 500);
+}
+
+function stopUrlWatch(): void {
+  if (urlWatchTimer === null) {
+    return;
+  }
+  window.clearInterval(urlWatchTimer);
+  urlWatchTimer = null;
 }
 
 function modeToLabel(mode: PerformanceMode): string {

@@ -16,6 +16,14 @@ export class ChatGptAdapter implements ChatSiteAdapter {
     return document.querySelector("main") as HTMLElement | null;
   }
 
+  getThreadId(): string {
+    const match = window.location.pathname.match(/\/c\/([^/]+)/);
+    if (match?.[1]) {
+      return `c:${match[1]}`;
+    }
+    return `path:${window.location.pathname}`;
+  }
+
   getMessageElements(): HTMLElement[] {
     const root = this.getThreadRoot();
     if (!root) {

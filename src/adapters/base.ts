@@ -4,6 +4,7 @@ export interface ChatSiteAdapter {
   site: string;
   isMatch(): boolean;
   getThreadRoot(): HTMLElement | null;
+  getThreadId(): string;
   getMessageElements(): HTMLElement[];
   getMessageId(el: HTMLElement): string;
   getRole(el: HTMLElement): MessageRole;
