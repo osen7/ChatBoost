@@ -389,11 +389,18 @@ function runAction(action: Action): void {
     return;
   }
   if (action === "toggle-enabled") {
-    handlersRef?.onToggleEnabled(!state.enabled);
+    state.enabled = !state.enabled;
+    if (!state.enabled) {
+      state.paused = false;
+    }
+    renderState();
+    handlersRef?.onToggleEnabled(state.enabled);
     return;
   }
   if (action === "toggle-pause") {
-    handlersRef?.onTogglePause(!state.paused);
+    state.paused = !state.paused;
+    renderState();
+    handlersRef?.onTogglePause(state.paused);
     return;
   }
   if (action === "restore") {
@@ -476,6 +483,8 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
 function renderStatusDetail(s: PanelState): string {
   return `
     <div class="cbx-detail-title">状态</div>
+    <div class="cbx-detail-row">加速：<b>${s.enabled ? "开启" : "关闭"}</b></div>
+    <div class="cbx-detail-row">本页优化：<b>${s.paused ? "已暂停" : "运行中"}</b></div>
     <div class="cbx-detail-row">模式：<b>${s.modeLabel}</b></div>
     <div class="cbx-detail-row">${s.modeHint}</div>
     <div class="cbx-detail-row">压力等级：<b>${pressureToLabel(s.pressureLevel)}</b></div>
@@ -790,7 +799,7 @@ const styles = `
 .cbx-tooltip{ right:36px; }
 .cbx-detail{
   position:absolute;
-  top:38px;
+  top:0;
   width:220px;
   border:1px solid rgba(148,163,184,.45);
   border-radius:10px;
@@ -799,8 +808,8 @@ const styles = `
   padding:8px 10px;
   box-shadow:0 10px 24px rgba(15,23,42,.14);
   z-index:4;
+  right:calc(100% + 12px);
 }
-.cbx-detail{ right:0; }
 .cbx-detail-title{
   font-size:12px;
   font-weight:700;
