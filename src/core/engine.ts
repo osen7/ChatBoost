@@ -193,7 +193,7 @@ export class OptimizationEngine {
       const viewport = getViewportInfo();
       const effectiveConfig = getEffectiveConfig(this.config, this.pressureLevel);
       const measureBufferScreens = Math.max(effectiveConfig.collapseBufferScreens + 1, 2);
-      const protectedLatestIds = getLatestAssistantIds(this.thread.messages, 2);
+      const protectedLatestIds = getLatestProtectedIds(this.thread.messages, 2);
       for (const msg of this.thread.messages) {
         if (!shouldMeasureMessage(msg, viewport, measureBufferScreens, protectedLatestIds.has(msg.id))) {
           continue;
@@ -542,9 +542,12 @@ function shouldMeasureMessage(
   return msg.metrics.bottom >= minTop && msg.metrics.top <= maxBottom;
 }
 
-function getLatestAssistantIds(messages: MessageModel[], keepCount: number): Set<string> {
+function getLatestProtectedIds(messages: MessageModel[], keepCount: number): Set<string> {
   const protectedIds = new Set<string>();
   for (let i = messages.length - 1; i >= 0 && protectedIds.size < keepCount; i -= 1) {
+    protectedIds.add(messages[i].id);
+  }
+  for (let i = messages.length - 1; i >= 0 && protectedIds.size < keepCount + 1; i -= 1) {
     const msg = messages[i];
     if (msg.role !== "assistant") {
       continue;

@@ -19,6 +19,8 @@
 .chatboost-placeholder {
   overflow: hidden;
   opacity: 0.66;
+  position: relative;
+  padding-bottom: 44px;
 }
 
 .chatboost-placeholder-note {
