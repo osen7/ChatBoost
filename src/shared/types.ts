@@ -1,0 +1,48 @@
+export type MessageRole = "user" | "assistant" | "system" | "unknown";
+
+export type RenderMode = "full" | "collapsed" | "placeholder";
+
+export interface MessageMetrics {
+  top: number;
+  bottom: number;
+  height: number;
+  lastMeasuredAt: number;
+}
+
+export interface MessageFlags {
+  isStreaming: boolean;
+  isPinned: boolean;
+  isHeavy: boolean;
+  isInteractive: boolean;
+}
+
+export interface MessageModel {
+  id: string;
+  role: MessageRole;
+  el: HTMLElement;
+  contentEl: HTMLElement | null;
+  metrics: MessageMetrics;
+  flags: MessageFlags;
+  renderMode: RenderMode;
+}
+
+export interface ThreadState {
+  site: string;
+  messages: MessageModel[];
+  activeRange: { start: number; end: number };
+  lastUpdatedAt: number;
+}
+
+export interface EngineConfig {
+  collapseHeight: number;
+  fullBufferScreens: number;
+  collapseBufferScreens: number;
+  enablePlaceholder: boolean;
+  enableAutoCollapse: boolean;
+}
+
+export interface ViewportInfo {
+  top: number;
+  bottom: number;
+  height: number;
+}

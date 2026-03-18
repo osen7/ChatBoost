@@ -1,0 +1,21 @@
+.chatboost-collapsed {
+  max-height: 420px;
+  overflow: hidden;
+  position: relative;
+}
+
+.chatboost-collapsed::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 72px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 1));
+  pointer-events: none;
+}
+
+.chatboost-placeholder {
+  overflow: hidden;
+  opacity: 0.66;
+}
