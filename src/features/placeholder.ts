@@ -3,14 +3,17 @@ import type { MessageModel } from "../shared/types";
 
 const PLACEHOLDER_CLASS = "chatboost-placeholder";
 const PLACEHOLDER_NOTE_CLASS = "chatboost-placeholder-note";
+const PLACEHOLDER_NOTE_ATTR = "data-chatboost-placeholder-note";
 const MAX_DEHYDRATED_BYTES = 20 * 1024 * 1024;
 let dehydratedBytesInUse = 0;
+const dehydratedLru = new Map<string, { msg: MessageModel; bytes: number; lastUsedAt: number }>();
 
 export function applyPlaceholderMode(msg: MessageModel): void {
   msg.el.classList.add(PLACEHOLDER_CLASS);
   msg.el.classList.remove("chatboost-collapsed");
   msg.el.setAttribute(PLACEHOLDER_ATTR, "true");
   msg.el.style.minHeight = `${Math.max(msg.metrics.height, 80)}px`;
+  ensurePlaceholderNote(msg);
   if (msg.flags.isInteractive) {
     hideContentByDisplay(msg);
     return;
@@ -19,14 +22,14 @@ export function applyPlaceholderMode(msg: MessageModel): void {
 }
 
 export function restoreDehydratedContent(msg: MessageModel): void {
+  removePlaceholderNote(msg);
   if (!msg.contentEl || msg.contentEl === msg.el) {
     return;
   }
 
   if (msg.dehydratedHtml !== undefined) {
-    dehydratedBytesInUse = Math.max(0, dehydratedBytesInUse - getByteSize(msg.dehydratedHtml));
+    releaseDehydrated(msg);
     msg.contentEl.innerHTML = msg.dehydratedHtml;
-    msg.dehydratedHtml = undefined;
   } else {
     const prev = msg.contentEl.dataset.chatboostPrevDisplay;
     msg.contentEl.style.display = prev ?? "";
@@ -39,21 +42,108 @@ function dehydrateContent(msg: MessageModel): void {
     return;
   }
 
-  if (msg.dehydratedHtml === undefined) {
-    const html = msg.contentEl.innerHTML;
-    const bytes = getByteSize(html);
-    if (dehydratedBytesInUse + bytes > MAX_DEHYDRATED_BYTES) {
-      hideContentByDisplay(msg);
-      return;
-    }
-    msg.dehydratedHtml = html;
-    dehydratedBytesInUse += bytes;
+  if (msg.dehydratedHtml !== undefined) {
+    touchDehydrated(msg.id);
+    msg.contentEl.replaceChildren();
+    return;
   }
 
+  const html = msg.contentEl.innerHTML;
+  const bytes = getByteSize(html);
+  if (!ensureBudget(bytes, msg.id)) {
+    hideContentByDisplay(msg);
+    return;
+  }
+
+  msg.dehydratedHtml = html;
+  dehydratedBytesInUse += bytes;
+  dehydratedLru.set(msg.id, { msg, bytes, lastUsedAt: Date.now() });
+  msg.contentEl.replaceChildren();
+}
+
+function ensureBudget(requiredBytes: number, currentId: string): boolean {
+  pruneInvalidLruEntries();
+
+  while (dehydratedBytesInUse + requiredBytes > MAX_DEHYDRATED_BYTES) {
+    const victim = pickLruVictim(currentId);
+    if (!victim) {
+      break;
+    }
+    evictToHidden(victim.msg);
+  }
+
+  return dehydratedBytesInUse + requiredBytes <= MAX_DEHYDRATED_BYTES;
+}
+
+function pickLruVictim(excludeId: string): { msg: MessageModel; bytes: number; lastUsedAt: number } | null {
+  let victim: { msg: MessageModel; bytes: number; lastUsedAt: number } | null = null;
+  for (const [messageId, entry] of dehydratedLru) {
+    if (messageId === excludeId) {
+      continue;
+    }
+    if (!victim || entry.lastUsedAt < victim.lastUsedAt) {
+      victim = entry;
+    }
+  }
+  return victim;
+}
+
+function evictToHidden(msg: MessageModel): void {
+  if (!msg.contentEl || msg.contentEl === msg.el || msg.dehydratedHtml === undefined) {
+    releaseDehydrated(msg);
+    return;
+  }
+
+  const html = msg.dehydratedHtml;
+  releaseDehydrated(msg);
+  msg.contentEl.innerHTML = html;
+  hideContentByDisplay(msg);
+  ensurePlaceholderNote(msg);
+}
+
+function releaseDehydrated(msg: MessageModel): void {
+  if (msg.dehydratedHtml === undefined) {
+    dehydratedLru.delete(msg.id);
+    return;
+  }
+
+  dehydratedBytesInUse = Math.max(0, dehydratedBytesInUse - getByteSize(msg.dehydratedHtml));
+  msg.dehydratedHtml = undefined;
+  dehydratedLru.delete(msg.id);
+}
+
+function touchDehydrated(messageId: string): void {
+  const entry = dehydratedLru.get(messageId);
+  if (!entry) {
+    return;
+  }
+  entry.lastUsedAt = Date.now();
+}
+
+function pruneInvalidLruEntries(): void {
+  for (const [messageId, entry] of dehydratedLru) {
+    if (entry.msg.dehydratedHtml !== undefined) {
+      continue;
+    }
+    dehydratedLru.delete(messageId);
+  }
+}
+
+function ensurePlaceholderNote(msg: MessageModel): void {
+  const existing = msg.el.querySelector<HTMLElement>(`[${PLACEHOLDER_NOTE_ATTR}]`);
+  if (existing) {
+    return;
+  }
   const note = document.createElement("div");
   note.className = PLACEHOLDER_NOTE_CLASS;
+  note.setAttribute(PLACEHOLDER_NOTE_ATTR, "true");
   note.textContent = "⚡ 已轻量化，点击列表可恢复";
-  msg.contentEl.replaceChildren(note);
+  msg.el.appendChild(note);
+}
+
+function removePlaceholderNote(msg: MessageModel): void {
+  const note = msg.el.querySelector<HTMLElement>(`[${PLACEHOLDER_NOTE_ATTR}]`);
+  note?.remove();
 }
 
 function hideContentByDisplay(msg: MessageModel): void {
