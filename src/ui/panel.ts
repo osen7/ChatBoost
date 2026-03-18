@@ -476,7 +476,7 @@ function getActionLabel(action: Action, s: PanelState): string {
   if (action === "toggle-pause") return s.paused ? "恢复本页优化" : "暂停本页优化";
   if (action === "restore") return "恢复全部消息";
   if (action === "mode") return `模式：${s.modeLabel}`;
-  if (action === "optimized") return "查看已轻量化内容";
+  if (action === "optimized") return "查看问题索引";
   if (action === "status") return "查看状态";
   return "隐藏控件";
 }
@@ -536,7 +536,7 @@ function renderOptimizedDetail(s: PanelState): string {
   const items = s.optimizedMessages
     .map((item, index) => {
       const role = item.role === "user" ? "问题" : item.role === "assistant" ? "回复" : "消息";
-      const mode = item.renderMode === "collapsed" ? "折叠" : "占位";
+      const mode = item.renderMode === "collapsed" ? "折叠" : item.renderMode === "placeholder" ? "占位" : "完整";
       return `
         <div class="cbx-optimized-item ${index === optimizedNavIndex ? "cbx-optimized-item-active" : ""}" data-cbx-jump="${item.id}">
           <div class="cbx-optimized-meta">#${index + 1} · ${mode} · ${role}</div>
@@ -547,14 +547,14 @@ function renderOptimizedDetail(s: PanelState): string {
     .join("");
 
   return `
-    <div class="cbx-detail-title">已轻量化内容</div>
+    <div class="cbx-detail-title">问题索引</div>
     <div class="cbx-optimized-nav">
       <button class="cbx-detail-btn" type="button" data-cbx-nav="prev" ${navCount > 0 ? "" : "disabled"}>上一条</button>
       <button class="cbx-detail-btn" type="button" data-cbx-nav="next" ${navCount > 0 ? "" : "disabled"}>下一条</button>
     </div>
-    <div class="cbx-detail-row">当前共有 ${s.optimizedMessages.length} 条消息被折叠或占位。</div>
-    <div class="cbx-detail-row">点击条目会立即定位并临时恢复，约 4 秒后自动回到优化策略。</div>
-    <div class="cbx-optimized-list">${items || '<div class="cbx-detail-row">当前没有被轻量化的消息。</div>'}</div>
+    <div class="cbx-detail-row">当前共有 ${s.optimizedMessages.length} 条索引项。</div>
+    <div class="cbx-detail-row">点击条目可直接跳转定位，若已折叠会临时恢复。</div>
+    <div class="cbx-optimized-list">${items || '<div class="cbx-detail-row">当前没有可导航的问题索引。</div>'}</div>
   `;
 }
 

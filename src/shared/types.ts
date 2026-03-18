@@ -76,7 +76,7 @@ export interface EngineStats {
 export interface OptimizedMessageSummary {
   id: string;
   role: MessageRole;
-  renderMode: Exclude<RenderMode, "full">;
+  renderMode: RenderMode;
   previewText: string;
-  optimizationReason: string;
+  optimizationReason?: string;
 }

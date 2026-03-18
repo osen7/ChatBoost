@@ -113,15 +113,15 @@ export class OptimizationEngine {
   }
 
   getOptimizedMessages(): OptimizedMessageSummary[] {
-    return this.thread.messages
-      .filter((msg): msg is MessageModel & { renderMode: "collapsed" | "placeholder" } => msg.renderMode !== "full")
-      .map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        renderMode: msg.renderMode,
-        previewText: msg.previewText || "(empty)",
-        optimizationReason: msg.optimizationReason ?? "为了减少当前页面渲染压力"
-      }));
+    const questionItems = this.thread.messages.filter((msg) => msg.role === "user");
+    const source = questionItems.length > 0 ? questionItems : this.thread.messages;
+    return source.map((msg) => ({
+      id: msg.id,
+      role: msg.role,
+      renderMode: msg.renderMode,
+      previewText: msg.previewText || "(empty)",
+      optimizationReason: msg.optimizationReason
+    }));
   }
 
   updateConfig(nextConfig: EngineConfig): void {
