@@ -55,10 +55,12 @@ let closeTimer: number | null = null;
 let hoverAction: Action | null = null;
 let hoverToolEl: HTMLElement | null = null;
 let detailMode: "status" | "optimized" | null = null;
+let detailAnchorEl: HTMLElement | null = null;
 let dragActive = false;
 let dragMoved = false;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
+let manualPositionLocked = false;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
 const DRAG_THRESHOLD = 6;
@@ -194,6 +196,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     }
 
     if (target.closest(".cbx-anchor")) {
+      detailAnchorEl = toolbarEl ?? anchorEl;
       detailMode = detailMode === "status" ? null : "status";
       setDetailVisible(detailMode !== null);
       renderState();
@@ -205,7 +208,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     if (!action) {
       return;
     }
-    runAction(action);
+    runAction(action, actionNode instanceof HTMLElement ? actionNode : undefined);
   };
   shadow.addEventListener("click", clickHandler);
   cleanupFns.push(() => shadow.removeEventListener("click", clickHandler));
@@ -246,7 +249,9 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     if (!hidden) {
       setToolbarVisible(true);
       scheduleClose();
-      applySmartPlacement(hostEl);
+      if (!manualPositionLocked) {
+        applySmartPlacement(hostEl);
+      }
     }
   };
   document.addEventListener("keydown", keyHandler, true);
@@ -275,6 +280,8 @@ export function unmountPanel(): void {
   hoverAction = null;
   hoverToolEl = null;
   detailMode = null;
+  detailAnchorEl = null;
+  manualPositionLocked = false;
 }
 
 export function updatePanelState(nextState: PanelState): void {
@@ -343,6 +350,9 @@ function renderDetail(): void {
   detailEl.innerHTML = detailMode === "optimized" ? renderOptimizedDetail(state) : renderStatusDetail(state);
   bindDetailActions(detailEl);
   setDetailVisible(detailMode !== null);
+  if (detailMode !== null) {
+    positionDetailPanel();
+  }
 }
 
 function setToolbarVisible(visible: boolean): void {
@@ -384,7 +394,7 @@ function clearCloseTimer(): void {
   closeTimer = null;
 }
 
-function runAction(action: Action): void {
+function runAction(action: Action, sourceEl?: HTMLElement): void {
   if (!state) {
     return;
   }
@@ -412,12 +422,14 @@ function runAction(action: Action): void {
     return;
   }
   if (action === "optimized") {
+    detailAnchorEl = sourceEl ?? hoverToolEl ?? toolbarEl;
     detailMode = detailMode === "optimized" ? null : "optimized";
     setDetailVisible(detailMode !== null);
     renderState();
     return;
   }
   if (action === "status") {
+    detailAnchorEl = sourceEl ?? hoverToolEl ?? toolbarEl;
     detailMode = detailMode === "status" ? null : "status";
     setDetailVisible(detailMode !== null);
     renderState();
@@ -438,7 +450,7 @@ function createToolButton(action: Action, icon: string): HTMLButtonElement {
   btn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    runAction(action);
+    runAction(action, btn);
   });
   btn.innerHTML = icon;
   return btn;
@@ -585,6 +597,7 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement): 
     }
     dragActive = false;
     if (dragMoved) {
+      manualPositionLocked = true;
       snapToEdge(hostEl);
     }
   };
@@ -602,17 +615,18 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement): 
 
 function installAutoAvoidance(hostEl: HTMLDivElement): () => void {
   const apply = () => {
+    if (manualPositionLocked || dragActive) {
+      return;
+    }
     applySmartPlacement(hostEl);
   };
   const throttledApply = throttle(apply, 160);
 
   window.addEventListener("resize", throttledApply, true);
-  window.addEventListener("scroll", throttledApply, true);
   window.setTimeout(apply, 90);
 
   return () => {
     window.removeEventListener("resize", throttledApply, true);
-    window.removeEventListener("scroll", throttledApply, true);
   };
 }
 
@@ -699,6 +713,22 @@ function throttle<T extends (...args: unknown[]) => void>(fn: T, waitMs: number)
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function positionDetailPanel(): void {
+  if (!detailEl || !clusterEl) {
+    return;
+  }
+  const anchor = detailAnchorEl ?? hoverToolEl ?? toolbarEl ?? anchorEl;
+  if (!anchor) {
+    detailEl.style.top = "50%";
+    return;
+  }
+
+  const clusterRect = clusterEl.getBoundingClientRect();
+  const anchorRect = anchor.getBoundingClientRect();
+  const anchorCenter = anchorRect.top - clusterRect.top + anchorRect.height / 2;
+  detailEl.style.top = `${Math.round(anchorCenter)}px`;
 }
 
 const styles = `
@@ -799,7 +829,8 @@ const styles = `
 .cbx-tooltip{ right:36px; }
 .cbx-detail{
   position:absolute;
-  top:0;
+  top:50%;
+  transform:translateY(-50%);
   width:220px;
   border:1px solid rgba(148,163,184,.45);
   border-radius:10px;
