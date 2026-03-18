@@ -21,6 +21,8 @@ export class OptimizationEngine {
   private readonly onClick = (event: MouseEvent) => this.handleClick(event);
   private readonly observer = new MutationObserver(() => this.scheduleRefresh());
   private readonly temporaryRevealTimers = new Map<string, number>();
+  private readonly temporaryRevealMs = 4000;
+  private readonly postJumpRecalcDelayMs = 300;
   private config: EngineConfig;
   private stopped = false;
   private thread: ThreadState;
@@ -128,6 +130,11 @@ export class OptimizationEngine {
     msg.lastModeChangedAt = Date.now();
     applyRenderMode(msg, "full");
     this.scrollIntoViewAfterLayout(msg);
+    window.setTimeout(() => {
+      if (!this.stopped) {
+        this.scheduleUpdate();
+      }
+    }, this.postJumpRecalcDelayMs);
   }
 
   restoreMessage(messageId: string): void {
@@ -195,26 +202,36 @@ export class OptimizationEngine {
     }
   }
 
-  private revealTemporarily(msg: MessageModel, durationMs = 15000): void {
+  private revealTemporarily(msg: MessageModel): void {
     const prevTimer = this.temporaryRevealTimers.get(msg.id);
     if (prevTimer !== undefined) {
       window.clearTimeout(prevTimer);
     }
 
+    this.clearTemporaryReveals(msg.id);
     msg.flags.isTemporarilyRevealed = true;
     const timerId = window.setTimeout(() => {
       this.temporaryRevealTimers.delete(msg.id);
       msg.flags.isTemporarilyRevealed = false;
       this.scheduleUpdate();
-    }, durationMs);
+    }, this.temporaryRevealMs);
     this.temporaryRevealTimers.set(msg.id, timerId);
   }
 
-  private clearTemporaryReveals(): void {
-    for (const timerId of this.temporaryRevealTimers.values()) {
+  private clearTemporaryReveals(keepId?: string): void {
+    for (const [messageId, timerId] of this.temporaryRevealTimers) {
+      if (keepId && messageId === keepId) {
+        continue;
+      }
       window.clearTimeout(timerId);
+      this.temporaryRevealTimers.delete(messageId);
     }
-    this.temporaryRevealTimers.clear();
+    for (const msg of this.thread.messages) {
+      if (keepId && msg.id === keepId) {
+        continue;
+      }
+      msg.flags.isTemporarilyRevealed = false;
+    }
   }
 
   private scrollIntoViewAfterLayout(msg: MessageModel): void {
