@@ -46,6 +46,7 @@ let appliedPlacement: PanelPlacement | null = null;
 let hidden = false;
 let closeTimer: number | null = null;
 let hoverAction: Action | null = null;
+let hoverToolEl: HTMLElement | null = null;
 let detailMode: "status" | "optimized" | null = null;
 let dragActive = false;
 let dragMoved = false;
@@ -206,19 +207,21 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     const target = event.target;
     if (!(target instanceof Element)) {
       hoverAction = null;
+      hoverToolEl = null;
       renderTooltip();
       return;
     }
     const actionNode = target.closest("[data-cbx-action]");
     const action = actionNode?.getAttribute("data-cbx-action") as Action | null;
     hoverAction = action;
+    hoverToolEl = actionNode instanceof HTMLElement ? actionNode : null;
     renderTooltip();
   };
   shadow.addEventListener("mouseover", moveHandler);
   cleanupFns.push(() => shadow.removeEventListener("mouseover", moveHandler));
 
   const hostEl = host;
-  const dragCleanup = installDragAndSnap(hostEl, anchorEl, clusterEl);
+  const dragCleanup = installDragAndSnap(hostEl, anchorEl);
   cleanupFns.push(dragCleanup);
   const avoidCleanup = installAutoAvoidance(hostEl);
   cleanupFns.push(avoidCleanup);
@@ -263,6 +266,7 @@ export function unmountPanel(): void {
   handlersRef = null;
   appliedPlacement = null;
   hoverAction = null;
+  hoverToolEl = null;
   detailMode = null;
 }
 
@@ -314,6 +318,14 @@ function renderTooltip(): void {
     return;
   }
   tooltipEl.textContent = getActionLabel(hoverAction, state);
+  if (hoverToolEl && clusterEl) {
+    const toolRect = hoverToolEl.getBoundingClientRect();
+    const clusterRect = clusterEl.getBoundingClientRect();
+    const offsetTop = toolRect.top - clusterRect.top + toolRect.height / 2;
+    tooltipEl.style.top = `${Math.round(offsetTop)}px`;
+  } else {
+    tooltipEl.style.top = "50%";
+  }
   tooltipEl.classList.remove("cbx-hidden");
 }
 
@@ -333,6 +345,7 @@ function setToolbarVisible(visible: boolean): void {
   toolbarEl.classList.toggle("cbx-hidden", !visible);
   if (!visible) {
     hoverAction = null;
+    hoverToolEl = null;
     renderTooltip();
   }
 }
@@ -498,7 +511,7 @@ function escapeHtml(input: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, cluster: HTMLDivElement): () => void {
+function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement): () => void {
   let startX = 0;
   let startY = 0;
 
@@ -508,10 +521,11 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, c
     startX = event.clientX;
     startY = event.clientY;
     const rect = hostEl.getBoundingClientRect();
-    dragOffsetX = event.clientX - rect.right;
+    dragOffsetX = event.clientX - rect.left;
     dragOffsetY = event.clientY - rect.top;
-    hostEl.style.right = `${Math.max(window.innerWidth - rect.right, 10)}px`;
+    hostEl.style.left = `${rect.left}px`;
     hostEl.style.top = `${rect.top}px`;
+    hostEl.style.right = "auto";
     hostEl.style.bottom = "auto";
     event.preventDefault();
   };
@@ -527,9 +541,11 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, c
     if (!dragMoved) {
       return;
     }
+    const maxLeft = Math.max(window.innerWidth - hostEl.offsetWidth - 6, 0);
     const maxTop = Math.max(window.innerHeight - hostEl.offsetHeight - 6, 0);
+    const left = clamp(event.clientX - dragOffsetX, 6, maxLeft);
     const top = clamp(event.clientY - dragOffsetY, 6, maxTop);
-    hostEl.style.right = "10px";
+    hostEl.style.left = `${left}px`;
     hostEl.style.top = `${top}px`;
   };
 
@@ -609,6 +625,7 @@ function snapToEdge(hostEl: HTMLDivElement): void {
   const top = clamp(rect.top, 6, Math.max(window.innerHeight - rect.height - 6, 6));
   hostEl.style.top = `${top}px`;
   hostEl.style.left = `${Math.max(window.innerWidth - rect.width - 10, 6)}px`;
+  hostEl.style.right = "auto";
 }
 
 function isOccupied(x: number, y: number, hostEl: HTMLElement): boolean {
@@ -713,11 +730,10 @@ const styles = `
   flex-direction:column;
   gap:7px;
   z-index:2;
-  top:50%;
-  transform:translateY(-50%);
+  right:0;
+  bottom:calc(100% + 10px);
   pointer-events:auto;
 }
-.cbx-toolbar{ right:calc(100% + 10px); }
 .cbx-tool{
   display:grid;
   place-items:center;
@@ -738,7 +754,6 @@ const styles = `
 }
 .cbx-tooltip{
   position:absolute;
-  top:50%;
   transform:translateY(-50%);
   max-width:200px;
   padding:5px 8px;
