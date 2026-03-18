@@ -428,10 +428,10 @@ function getActionLabel(action: Action, s: PanelState): string {
 }
 
 function bindDetailActions(detailRoot: HTMLDivElement): void {
-  const jumpButtons = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-jump]");
-  for (const btn of jumpButtons) {
-    btn.onclick = () => {
-      const messageId = btn.dataset.cbxJump;
+  const jumpNodes = detailRoot.querySelectorAll<HTMLElement>("[data-cbx-jump]");
+  for (const node of jumpNodes) {
+    node.onclick = () => {
+      const messageId = node.dataset.cbxJump;
       if (!messageId) {
         return;
       }
@@ -441,7 +441,9 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
 
   const restoreButtons = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-restore]");
   for (const btn of restoreButtons) {
-    btn.onclick = () => {
+    btn.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       const messageId = btn.dataset.cbxRestore;
       if (!messageId) {
         return;
@@ -469,12 +471,11 @@ function renderOptimizedDetail(s: PanelState): string {
       const role = item.role === "user" ? "用户" : item.role === "assistant" ? "助手" : "消息";
       const mode = item.renderMode === "collapsed" ? "折叠" : "占位";
       return `
-        <div class="cbx-optimized-item">
+        <div class="cbx-optimized-item" data-cbx-jump="${item.id}">
           <div class="cbx-optimized-meta">${mode} · ${role}</div>
           <div class="cbx-optimized-preview">${escapeHtml(item.previewText || "(空内容)")}</div>
           <div class="cbx-optimized-reason">${escapeHtml(item.optimizationReason)}</div>
           <div class="cbx-optimized-actions">
-            <button class="cbx-detail-btn" type="button" data-cbx-jump="${item.id}">定位</button>
             <button class="cbx-detail-btn" type="button" data-cbx-restore="${item.id}">恢复</button>
           </div>
         </div>
@@ -786,6 +787,7 @@ const styles = `
   border-radius:8px;
   padding:8px;
   background:#fafafa;
+  cursor:pointer;
 }
 .cbx-optimized-meta{
   font-size:10px;
