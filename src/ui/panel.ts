@@ -26,9 +26,6 @@ export interface PanelState {
   optimizedMessages: OptimizedMessageSummary[];
 }
 
-type Action =
-  | "optimized";
-
 let host: HTMLDivElement | null = null;
 let state: PanelState | null = null;
 let handlersRef: PanelHandlers | null = null;
@@ -42,16 +39,11 @@ let detailEl: HTMLDivElement | null = null;
 let appliedPlacement: PanelPlacement | null = null;
 let hidden = false;
 let closeTimer: number | null = null;
-let hoverAction: Action | null = null;
-let hoverToolEl: HTMLElement | null = null;
-let detailMode: "optimized" | null = null;
-let detailAnchorEl: HTMLElement | null = null;
 let dragActive = false;
 let dragMoved = false;
 let dragOffsetY = 0;
 let manualPositionLocked = false;
 let optimizedNavIndex = 0;
-let indexCardVisible = false;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
 const DRAG_THRESHOLD = 6;
@@ -61,17 +53,6 @@ const lightningIcon = `
 <svg viewBox="0 0 24 24" aria-hidden="true">
   <path d="M13 2 6 13h5l-1 9 8-12h-5l0-8Z"></path>
 </svg>`;
-
-const optimizedIcon = `
-<svg viewBox="0 0 24 24" aria-hidden="true">
-  <path d="M4 7h16"></path>
-  <path d="M4 12h16"></path>
-  <path d="M4 17h11"></path>
-</svg>`;
-
-const TOOL_ACTIONS: Array<{ action: Action; icon: string }> = [
-  { action: "optimized", icon: optimizedIcon }
-];
 
 export function mountPanel(initialState: PanelState, handlers: PanelHandlers): void {
   handlersRef = handlers;
@@ -115,8 +96,6 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     return;
   }
 
-  toolbarEl.replaceChildren(...TOOL_ACTIONS.map((item) => createToolButton(item.action, item.icon)));
-
   const clickHandler = (event: Event) => {
     const target = event.target;
     if (!(target instanceof Element)) {
@@ -140,12 +119,6 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
       return;
     }
 
-    const actionNode = target.closest("[data-cbx-action]");
-    const action = actionNode?.getAttribute("data-cbx-action") as Action | null;
-    if (!action) {
-      return;
-    }
-    runAction(action, actionNode instanceof HTMLElement ? actionNode : undefined);
   };
   shadow.addEventListener("click", clickHandler);
   cleanupFns.push(() => shadow.removeEventListener("click", clickHandler));
@@ -195,12 +168,7 @@ export function unmountPanel(): void {
   state = null;
   handlersRef = null;
   appliedPlacement = null;
-  hoverAction = null;
-  hoverToolEl = null;
-  detailMode = null;
-  detailAnchorEl = null;
   manualPositionLocked = false;
-  indexCardVisible = false;
 }
 
 export function updatePanelState(nextState: PanelState): void {
@@ -219,9 +187,10 @@ function renderState(): void {
   }
   anchorEl.classList.toggle("cbx-anchor-off", !state.enabled);
 
-  setToolbarVisible(true);
-  renderTooltip();
+  renderIndexRail();
   renderDetail();
+  setToolbarVisible(true);
+  setDetailVisible(true);
 
   if (appliedPlacement !== state.placement) {
     applyPlacementByMode(state.placement);
@@ -229,52 +198,23 @@ function renderState(): void {
   }
 }
 
-function updateToolLabels(): void {
+function renderIndexRail(): void {
   if (!toolbarEl || !state) {
     return;
   }
-  const buttons = toolbarEl.querySelectorAll<HTMLButtonElement>(".cbx-tool");
-  for (const btn of buttons) {
-    const action = btn.dataset.cbxAction as Action | undefined;
-    if (!action) {
-      continue;
-    }
-    btn.setAttribute("aria-label", getActionLabel(action, state));
-  }
-}
-
-function renderTooltip(): void {
-  if (!tooltipEl || !state || !hoverAction) {
-    if (tooltipEl) {
-      tooltipEl.classList.add("cbx-hidden");
-    }
-    return;
-  }
-  tooltipEl.textContent = getActionLabel(hoverAction, state);
-  if (hoverToolEl && clusterEl) {
-    const toolRect = hoverToolEl.getBoundingClientRect();
-    const clusterRect = clusterEl.getBoundingClientRect();
-    const offsetTop = toolRect.top - clusterRect.top + toolRect.height / 2;
-    tooltipEl.style.top = `${Math.round(offsetTop)}px`;
-  } else {
-    tooltipEl.style.top = "50%";
-  }
-  tooltipEl.classList.remove("cbx-hidden");
+  syncOptimizedNavIndex();
+  toolbarEl.innerHTML = renderIndexRailHtml(state);
+  bindRailActions(toolbarEl);
 }
 
 function renderDetail(): void {
   if (!detailEl || !state) {
     return;
   }
-  if (detailMode === "optimized") {
-    syncOptimizedNavIndex();
-  }
-  detailEl.innerHTML = renderOptimizedDetail(state);
+  syncOptimizedNavIndex();
+  detailEl.innerHTML = renderIndexBubble(state);
   bindDetailActions(detailEl);
-  setDetailVisible(detailMode !== null);
-  if (detailMode !== null) {
-    positionDetailPanel();
-  }
+  positionDetailPanel();
 }
 
 function setToolbarVisible(visible: boolean): void {
@@ -282,11 +222,6 @@ function setToolbarVisible(visible: boolean): void {
     return;
   }
   toolbarEl.classList.toggle("cbx-hidden", !visible);
-  if (!visible) {
-    hoverAction = null;
-    hoverToolEl = null;
-    renderTooltip();
-  }
 }
 
 function setDetailVisible(visible: boolean): void {
@@ -302,9 +237,8 @@ function scheduleClose(): void {
     if (dragActive) {
       return;
     }
-    setToolbarVisible(false);
-    detailMode = null;
-    setDetailVisible(false);
+    setToolbarVisible(true);
+    setDetailVisible(true);
   }, COLLAPSE_DELAY_MS);
 }
 
@@ -316,54 +250,7 @@ function clearCloseTimer(): void {
   closeTimer = null;
 }
 
-function runAction(action: Action, sourceEl?: HTMLElement): void {
-  if (!state) {
-    return;
-  }
-  if (action === "optimized") {
-    detailAnchorEl = sourceEl ?? hoverToolEl ?? toolbarEl;
-    detailMode = detailMode === "optimized" ? null : "optimized";
-    setDetailVisible(detailMode !== null);
-    renderState();
-    return;
-  }
-}
-
-function createToolButton(action: Action, icon: string): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "cbx-tool";
-  btn.dataset.cbxAction = action;
-  btn.setAttribute("data-cbx-action", action);
-  btn.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    runAction(action, btn);
-  });
-  btn.innerHTML = icon;
-  return btn;
-}
-
-function getActionLabel(action: Action, s: PanelState): string {
-  void s;
-  return "查看问题索引";
-}
-
 function bindDetailActions(detailRoot: HTMLDivElement): void {
-  const navRoot = detailRoot.querySelector<HTMLElement>(".cbx-index-nav");
-  if (navRoot) {
-    navRoot.onmouseenter = () => {
-      indexCardVisible = true;
-      const card = detailRoot.querySelector<HTMLElement>(".cbx-index-card");
-      card?.classList.add("cbx-index-card-visible");
-    };
-    navRoot.onmouseleave = () => {
-      indexCardVisible = false;
-      const card = detailRoot.querySelector<HTMLElement>(".cbx-index-card");
-      card?.classList.remove("cbx-index-card-visible");
-    };
-  }
-
   const jumpCard = detailRoot.querySelector<HTMLElement>("[data-cbx-jump-current]");
   if (jumpCard) {
     jumpCard.onclick = () => {
@@ -378,8 +265,10 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
       handlersRef?.onJumpMessage(target.id);
     };
   }
+}
 
-  const markerLines = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-nav-line]");
+function bindRailActions(railRoot: HTMLElement): void {
+  const markerLines = railRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-nav-line]");
   for (const line of markerLines) {
     line.onmouseenter = () => {
       if (!state || state.optimizedMessages.length === 0) {
@@ -416,7 +305,7 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
     };
   }
 
-  const navButtons = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-nav]");
+  const navButtons = railRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-nav]");
   for (const btn of navButtons) {
     btn.onclick = (event) => {
       event.preventDefault();
@@ -427,7 +316,7 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
   }
 }
 
-function renderOptimizedDetail(s: PanelState): string {
+function renderIndexBubble(s: PanelState): string {
   const navCount = s.optimizedMessages.length;
   const safeIndex = clamp(optimizedNavIndex, 0, Math.max(navCount - 1, 0));
   const current = navCount > 0 ? s.optimizedMessages[safeIndex] : null;
@@ -439,6 +328,19 @@ function renderOptimizedDetail(s: PanelState): string {
         ? "占位"
         : "完整";
   const preview = current ? escapeHtml(current.previewText || "(空内容)") : "当前没有可导航的问题索引。";
+  return `
+    <div class="cbx-index-bubble ${current ? "" : "cbx-index-card-empty"}" role="button" tabindex="0" data-cbx-jump-current ${current ? "" : "aria-disabled=true"}>
+      <div class="cbx-index-title">问题索引</div>
+      <div class="cbx-index-meta">${current ? `${role} · ${mode} · ${safeIndex + 1}/${navCount}` : "暂无索引项"}</div>
+      <div class="cbx-index-preview">${preview}</div>
+      <div class="cbx-index-hint">${current ? "点击卡片跳转到该位置" : "继续对话后会自动生成索引"}</div>
+    </div>
+  `;
+}
+
+function renderIndexRailHtml(s: PanelState): string {
+  const navCount = s.optimizedMessages.length;
+  const safeIndex = clamp(optimizedNavIndex, 0, Math.max(navCount - 1, 0));
   const activeMarker = messageIndexToMarker(safeIndex, navCount);
   const markerLines = Array.from({ length: 5 }, (_, index) => {
     const targetIndex = markerToMessageIndex(index, navCount);
@@ -447,19 +349,11 @@ function renderOptimizedDetail(s: PanelState): string {
   }).join("");
 
   return `
-    <div class="cbx-index-widget">
-      <div class="cbx-index-card ${current ? "" : "cbx-index-card-empty"} ${indexCardVisible ? "cbx-index-card-visible" : ""}" role="button" tabindex="0" data-cbx-jump-current ${current ? "" : "aria-disabled=true"}>
-        <div class="cbx-index-title">问题索引</div>
-        <div class="cbx-index-meta">${current ? `${role} · ${mode} · ${safeIndex + 1}/${navCount}` : "暂无索引项"}</div>
-        <div class="cbx-index-preview">${preview}</div>
-        <div class="cbx-index-hint">${current ? "点击卡片跳转到该位置" : "继续对话后会自动生成索引"}</div>
-      </div>
-      <div class="cbx-index-nav">
-        <button class="cbx-index-btn" type="button" data-cbx-nav="prev" ${navCount > 0 && safeIndex > 0 ? "" : "disabled"} aria-label="上一个">↑</button>
-        <div class="cbx-index-lines" aria-hidden="true">${markerLines}</div>
-        <button class="cbx-index-btn" type="button" data-cbx-nav="next" ${navCount > 0 && safeIndex < navCount - 1 ? "" : "disabled"} aria-label="下一个">↓</button>
-        <div class="cbx-index-pos">${navCount > 0 ? `${safeIndex + 1}/${navCount}` : "0/0"}</div>
-      </div>
+    <div class="cbx-index-nav">
+      <button class="cbx-index-btn" type="button" data-cbx-nav="prev" ${navCount > 0 && safeIndex > 0 ? "" : "disabled"} aria-label="上一个">↑</button>
+      <div class="cbx-index-lines" aria-hidden="true">${markerLines}</div>
+      <button class="cbx-index-btn" type="button" data-cbx-nav="next" ${navCount > 0 && safeIndex < navCount - 1 ? "" : "disabled"} aria-label="下一个">↓</button>
+      <div class="cbx-index-pos">${navCount > 0 ? `${safeIndex + 1}/${navCount}` : "0/0"}</div>
     </div>
   `;
 }
@@ -703,17 +597,12 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function positionDetailPanel(): void {
-  if (!detailEl || !clusterEl) {
+  if (!detailEl || !clusterEl || !toolbarEl) {
     return;
   }
-  const anchor = detailAnchorEl ?? hoverToolEl ?? toolbarEl ?? anchorEl;
-  if (!anchor) {
-    detailEl.style.top = "50%";
-    return;
-  }
-
   const clusterRect = clusterEl.getBoundingClientRect();
-  const anchorRect = anchor.getBoundingClientRect();
+  const activeLine = toolbarEl.querySelector<HTMLElement>(".cbx-index-line-active");
+  const anchorRect = (activeLine ?? toolbarEl).getBoundingClientRect();
   const anchorCenter = anchorRect.top - clusterRect.top + anchorRect.height / 2;
   detailEl.style.top = `${Math.round(anchorCenter)}px`;
 }
@@ -744,8 +633,7 @@ const styles = `
   position:relative;
   z-index:2;
 }
-.cbx-anchor,
-.cbx-tool{
+.cbx-anchor{
   display:flex;
   align-items:center;
   justify-content:center;
@@ -773,7 +661,7 @@ const styles = `
   color:#94a3b8;
 }
 .cbx-anchor-icon svg,
-.cbx-tool svg{
+.cbx-toolbar svg{
   width:100%;
   height:100%;
   stroke:currentColor;
@@ -788,19 +676,9 @@ const styles = `
 }
 .cbx-toolbar{
   position:relative;
-  display:flex;
-  flex-direction:column;
-  gap:10px;
+  width:28px;
   z-index:3;
   pointer-events:auto;
-}
-.cbx-tool{
-  font-size:14px;
-  pointer-events:auto;
-}
-.cbx-tool svg{
-  width:18px;
-  height:18px;
 }
 .cbx-tooltip{
   display:none !important;
@@ -809,41 +687,21 @@ const styles = `
   position:absolute;
   top:50%;
   transform:translateY(-50%);
-  width:276px;
+  width:260px;
   border:var(--cbx-stroke) solid rgba(148,163,184,.32);
-  border-radius:14px;
-  background:rgba(255,255,255,.98);
+  border-radius:18px;
+  background:#f5f5f5;
   color:var(--cbx-text);
-  padding:10px;
+  padding:14px 16px;
   box-shadow:0 10px 22px rgba(15,23,42,.12);
   z-index:4;
-  right:calc(100% + 12px);
-}
-.cbx-index-widget{
-  display:flex;
-  align-items:stretch;
-  gap:8px;
-}
-.cbx-index-card{
-  flex:1;
-  min-height:132px;
-  border:var(--cbx-stroke) solid #e2e8f0;
-  border-radius:16px;
-  padding:12px 14px;
-  background:#f5f5f5;
-  cursor:pointer;
-  opacity:0;
-  transform:translateX(6px);
-  transition:opacity .14s ease, transform .14s ease;
-  pointer-events:none;
-}
-.cbx-index-card-visible{
-  opacity:1;
-  transform:translateX(0);
-  pointer-events:auto;
+  right:calc(100% + 16px);
 }
 .cbx-index-card-empty{
   cursor:default;
+}
+.cbx-index-bubble{
+  cursor:pointer;
 }
 .cbx-index-title{
   font-size:12px;
@@ -872,7 +730,7 @@ const styles = `
 }
 .cbx-index-nav{
   width:28px;
-  min-height:132px;
+  min-height:154px;
   display:flex;
   flex-direction:column;
   align-items:center;
@@ -896,7 +754,7 @@ const styles = `
 .cbx-index-lines{
   display:flex;
   flex-direction:column;
-  gap:7px;
+  gap:8px;
 }
 .cbx-index-line{
   width:12px;
