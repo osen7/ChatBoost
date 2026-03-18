@@ -1,6 +1,8 @@
 # ChatBoost
 
-Browser extension for making long AI chat threads smoother and easier to navigate, without changing message content, server history, or model context.
+ChatBoost 是一个面向 AI 长对话场景的浏览器扩展，用来同时解决两件事：页面越来越卡，以及历史内容越来越难找。
+
+它不会修改消息内容、服务端历史或模型上下文，只在浏览器本地做显示层优化，并把被折叠或轻量化的内容用可解释、可恢复、可跳转的方式呈现出来。
 
 ## Why
 
