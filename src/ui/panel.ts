@@ -757,17 +757,17 @@ const styles = `
   position:absolute;
   transform:translateY(-50%);
   max-width:200px;
-  padding:5px 8px;
+  padding:4px 8px;
   border:1px solid #cbd5e1;
-  border-radius:8px;
+  border-radius:6px;
   background:#ffffff;
   color:#0f172a;
-  font-size:11px;
+  font-size:12px;
   white-space:nowrap;
   z-index:4;
   box-shadow:0 8px 20px rgba(15,23,42,.12);
 }
-.cbx-tooltip{ right:calc(100% + 46px); }
+.cbx-tooltip{ right:36px; }
 .cbx-detail{
   position:absolute;
   top:38px;
