@@ -24,6 +24,9 @@ export interface MessageModel {
   metrics: MessageMetrics;
   flags: MessageFlags;
   renderMode: RenderMode;
+  previewText: string;
+  optimizationReason?: string;
+  lastModeChangedAt?: number;
 }
 
 export interface ThreadState {
@@ -57,4 +60,12 @@ export interface EngineStats {
   placeholder: number;
   heavy: number;
   streaming: number;
+}
+
+export interface OptimizedMessageSummary {
+  id: string;
+  role: MessageRole;
+  renderMode: Exclude<RenderMode, "full">;
+  previewText: string;
+  optimizationReason: string;
 }

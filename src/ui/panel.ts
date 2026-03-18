@@ -1,11 +1,13 @@
 import { PANEL_ATTR } from "../shared/constants";
-import type { PanelPlacement } from "../shared/types";
+import type { OptimizedMessageSummary, PanelPlacement } from "../shared/types";
 
 interface PanelHandlers {
   onToggleEnabled(nextEnabled: boolean): void;
   onTogglePause(nextPaused: boolean): void;
   onCycleMode(): void;
   onRestoreAll(): void;
+  onJumpMessage(messageId: string): void;
+  onRestoreMessage(messageId: string): void;
 }
 
 export interface PanelState {
@@ -18,6 +20,7 @@ export interface PanelState {
   collapsedCount: number;
   placeholderCount: number;
   totalCount: number;
+  optimizedMessages: OptimizedMessageSummary[];
 }
 
 type Action =
@@ -25,6 +28,7 @@ type Action =
   | "toggle-pause"
   | "restore"
   | "mode"
+  | "optimized"
   | "status"
   | "hide";
 
@@ -42,7 +46,7 @@ let appliedPlacement: PanelPlacement | null = null;
 let hidden = false;
 let closeTimer: number | null = null;
 let hoverAction: Action | null = null;
-let statusOpen = false;
+let detailMode: "status" | "optimized" | null = null;
 let dragActive = false;
 let dragMoved = false;
 let dragOffsetX = 0;
@@ -81,6 +85,13 @@ const modeIcon = `
   <path d="M12 3a9 9 0 0 1 0 18"></path>
 </svg>`;
 
+const optimizedIcon = `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M4 7h16"></path>
+  <path d="M4 12h16"></path>
+  <path d="M4 17h11"></path>
+</svg>`;
+
 const statusIcon = `
 <svg viewBox="0 0 24 24" aria-hidden="true">
   <path d="M12 8v4"></path>
@@ -99,6 +110,7 @@ const TOOL_ACTIONS: Array<{ action: Action; icon: string }> = [
   { action: "toggle-pause", icon: pauseIcon },
   { action: "restore", icon: restoreIcon },
   { action: "mode", icon: modeIcon },
+  { action: "optimized", icon: optimizedIcon },
   { action: "status", icon: statusIcon },
   { action: "hide", icon: closeIcon }
 ];
@@ -174,8 +186,8 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     }
 
     if (target.closest(".cbx-anchor")) {
-      statusOpen = !statusOpen;
-      setDetailVisible(statusOpen);
+      detailMode = detailMode === "status" ? null : "status";
+      setDetailVisible(detailMode !== null);
       renderState();
       return;
     }
@@ -251,7 +263,7 @@ export function unmountPanel(): void {
   handlersRef = null;
   appliedPlacement = null;
   hoverAction = null;
-  statusOpen = false;
+  detailMode = null;
 }
 
 export function updatePanelState(nextState: PanelState): void {
@@ -309,16 +321,9 @@ function renderDetail(): void {
   if (!detailEl || !state) {
     return;
   }
-  detailEl.innerHTML = `
-    <div class="cbx-detail-title">状态</div>
-    <div class="cbx-detail-row">模式：<b>${state.modeLabel}</b></div>
-    <div class="cbx-detail-row">${state.modeHint}</div>
-    <div class="cbx-detail-row">位置：<b>${state.placementLabel}</b></div>
-    <div class="cbx-detail-row">消息总数：${state.totalCount}</div>
-    <div class="cbx-detail-row">已折叠：${state.collapsedCount}</div>
-    <div class="cbx-detail-row">已占位：${state.placeholderCount}</div>
-  `;
-  setDetailVisible(statusOpen);
+  detailEl.innerHTML = detailMode === "optimized" ? renderOptimizedDetail(state) : renderStatusDetail(state);
+  bindDetailActions(detailEl);
+  setDetailVisible(detailMode !== null);
 }
 
 function setToolbarVisible(visible: boolean): void {
@@ -346,7 +351,7 @@ function scheduleClose(): void {
       return;
     }
     setToolbarVisible(false);
-    statusOpen = false;
+    detailMode = null;
     setDetailVisible(false);
   }, COLLAPSE_DELAY_MS);
 }
@@ -379,9 +384,15 @@ function runAction(action: Action): void {
     handlersRef?.onCycleMode();
     return;
   }
+  if (action === "optimized") {
+    detailMode = detailMode === "optimized" ? null : "optimized";
+    setDetailVisible(detailMode !== null);
+    renderState();
+    return;
+  }
   if (action === "status") {
-    statusOpen = !statusOpen;
-    setDetailVisible(statusOpen);
+    detailMode = detailMode === "status" ? null : "status";
+    setDetailVisible(detailMode !== null);
     renderState();
     return;
   }
@@ -411,8 +422,79 @@ function getActionLabel(action: Action, s: PanelState): string {
   if (action === "toggle-pause") return s.paused ? "恢复本页优化" : "暂停本页优化";
   if (action === "restore") return "恢复全部消息";
   if (action === "mode") return `模式：${s.modeLabel}`;
+  if (action === "optimized") return "查看已轻量化内容";
   if (action === "status") return "查看状态";
   return "隐藏控件";
+}
+
+function bindDetailActions(detailRoot: HTMLDivElement): void {
+  const jumpButtons = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-jump]");
+  for (const btn of jumpButtons) {
+    btn.onclick = () => {
+      const messageId = btn.dataset.cbxJump;
+      if (!messageId) {
+        return;
+      }
+      handlersRef?.onJumpMessage(messageId);
+    };
+  }
+
+  const restoreButtons = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-restore]");
+  for (const btn of restoreButtons) {
+    btn.onclick = () => {
+      const messageId = btn.dataset.cbxRestore;
+      if (!messageId) {
+        return;
+      }
+      handlersRef?.onRestoreMessage(messageId);
+    };
+  }
+}
+
+function renderStatusDetail(s: PanelState): string {
+  return `
+    <div class="cbx-detail-title">状态</div>
+    <div class="cbx-detail-row">模式：<b>${s.modeLabel}</b></div>
+    <div class="cbx-detail-row">${s.modeHint}</div>
+    <div class="cbx-detail-row">位置：<b>${s.placementLabel}</b></div>
+    <div class="cbx-detail-row">消息总数：${s.totalCount}</div>
+    <div class="cbx-detail-row">已折叠：${s.collapsedCount}</div>
+    <div class="cbx-detail-row">已占位：${s.placeholderCount}</div>
+  `;
+}
+
+function renderOptimizedDetail(s: PanelState): string {
+  const items = s.optimizedMessages
+    .map((item) => {
+      const role = item.role === "user" ? "用户" : item.role === "assistant" ? "助手" : "消息";
+      const mode = item.renderMode === "collapsed" ? "折叠" : "占位";
+      return `
+        <div class="cbx-optimized-item">
+          <div class="cbx-optimized-meta">${mode} · ${role}</div>
+          <div class="cbx-optimized-preview">${escapeHtml(item.previewText || "(空内容)")}</div>
+          <div class="cbx-optimized-reason">${escapeHtml(item.optimizationReason)}</div>
+          <div class="cbx-optimized-actions">
+            <button class="cbx-detail-btn" type="button" data-cbx-jump="${item.id}">定位</button>
+            <button class="cbx-detail-btn" type="button" data-cbx-restore="${item.id}">恢复</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="cbx-detail-title">已轻量化内容</div>
+    <div class="cbx-detail-row">当前共有 ${s.optimizedMessages.length} 条消息被折叠或占位。</div>
+    <div class="cbx-optimized-list">${items || '<div class="cbx-detail-row">当前没有被轻量化的消息。</div>'}</div>
+  `;
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, cluster: HTMLDivElement): () => void {
@@ -690,6 +772,50 @@ const styles = `
 .cbx-detail-row{
   font-size:11px;
   line-height:1.5;
+}
+.cbx-optimized-list{
+  margin-top:8px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  max-height:260px;
+  overflow:auto;
+}
+.cbx-optimized-item{
+  border:1px solid #e2e8f0;
+  border-radius:8px;
+  padding:8px;
+  background:#fafafa;
+}
+.cbx-optimized-meta{
+  font-size:10px;
+  color:#64748b;
+  margin-bottom:4px;
+}
+.cbx-optimized-preview{
+  font-size:11px;
+  color:#0f172a;
+  line-height:1.5;
+  margin-bottom:4px;
+}
+.cbx-optimized-reason{
+  font-size:10px;
+  color:#475569;
+  line-height:1.4;
+  margin-bottom:6px;
+}
+.cbx-optimized-actions{
+  display:flex;
+  gap:6px;
+}
+.cbx-detail-btn{
+  border:1px solid #cbd5e1;
+  border-radius:6px;
+  background:#fff;
+  color:#1e293b;
+  font-size:10px;
+  padding:4px 8px;
+  cursor:pointer;
 }
 .cbx-hidden{ display:none; }
 `;

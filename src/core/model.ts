@@ -39,6 +39,7 @@ function createModel(adapter: ChatSiteAdapter, el: HTMLElement, id: string): Mes
   const contentEl = adapter.getContentRoot(el);
   const rect = el.getBoundingClientRect();
   const scrollTop = window.scrollY;
+  const previewText = getPreviewText(contentEl ?? el);
   return {
     id,
     role: adapter.getRole(el),
@@ -56,7 +57,8 @@ function createModel(adapter: ChatSiteAdapter, el: HTMLElement, id: string): Mes
       isHeavy: contentEl ? detectHeavyMessage(contentEl) : false,
       isInteractive: false
     },
-    renderMode: "full"
+    renderMode: "full",
+    previewText
   };
 }
 
@@ -71,10 +73,15 @@ function patchModel(
     el,
     contentEl,
     role: adapter.getRole(el),
+    previewText: getPreviewText(contentEl ?? el),
     flags: {
       ...old.flags,
       isStreaming: adapter.isStreaming(el),
       isHeavy: contentEl ? detectHeavyMessage(contentEl) : old.flags.isHeavy
     }
   };
+}
+
+function getPreviewText(el: HTMLElement): string {
+  return (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
 }

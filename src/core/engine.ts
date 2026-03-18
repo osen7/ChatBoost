@@ -5,7 +5,14 @@ import { Scheduler } from "./scheduler";
 import { SafetyGuard } from "./safety";
 import { buildOrUpdateModels, createEmptyThread } from "./model";
 import { getDistanceInScreens, getViewportInfo } from "./viewport";
-import type { EngineConfig, EngineStats, MessageModel, RenderMode, ThreadState } from "../shared/types";
+import type {
+  EngineConfig,
+  EngineStats,
+  MessageModel,
+  OptimizedMessageSummary,
+  RenderMode,
+  ThreadState
+} from "../shared/types";
 
 export class OptimizationEngine {
   private readonly scheduler = new Scheduler();
@@ -73,6 +80,18 @@ export class OptimizationEngine {
     return stats;
   }
 
+  getOptimizedMessages(): OptimizedMessageSummary[] {
+    return this.thread.messages
+      .filter((msg): msg is MessageModel & { renderMode: "collapsed" | "placeholder" } => msg.renderMode !== "full")
+      .map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        renderMode: msg.renderMode,
+        previewText: msg.previewText || "(empty)",
+        optimizationReason: msg.optimizationReason ?? "为了减少当前页面渲染压力"
+      }));
+  }
+
   updateConfig(nextConfig: EngineConfig): void {
     this.config = nextConfig;
     this.scheduleUpdate();
@@ -92,6 +111,30 @@ export class OptimizationEngine {
     }
     this.refreshThread();
     this.scheduleUpdate();
+  }
+
+  jumpToMessage(messageId: string): void {
+    const msg = this.thread.messages.find((item) => item.id === messageId);
+    if (!msg) {
+      return;
+    }
+    msg.flags.isPinned = true;
+    msg.optimizationReason = undefined;
+    msg.lastModeChangedAt = Date.now();
+    applyRenderMode(msg, "full");
+    msg.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    highlightMessage(msg.el);
+  }
+
+  restoreMessage(messageId: string): void {
+    const msg = this.thread.messages.find((item) => item.id === messageId);
+    if (!msg) {
+      return;
+    }
+    msg.flags.isPinned = true;
+    msg.optimizationReason = undefined;
+    msg.lastModeChangedAt = Date.now();
+    applyRenderMode(msg, "full");
   }
 
   private scheduleRefresh(): void {
@@ -120,7 +163,8 @@ export class OptimizationEngine {
 
       const updates = this.thread.messages.map((msg) => ({
         msg,
-        mode: decideRenderMode(msg, viewport, this.config)
+        mode: decideRenderMode(msg, viewport, this.config),
+        reason: getOptimizationReason(msg, viewport, this.config)
       }));
 
       this.scheduler.scheduleMutate(() => {
@@ -128,6 +172,12 @@ export class OptimizationEngine {
           return;
         }
         for (const update of updates) {
+          if (update.mode === "full") {
+            update.msg.optimizationReason = undefined;
+          } else {
+            update.msg.optimizationReason = update.reason;
+            update.msg.lastModeChangedAt = Date.now();
+          }
           applyRenderMode(update.msg, update.mode);
         }
       });
@@ -157,6 +207,43 @@ export class OptimizationEngine {
     msg.flags.isPinned = control.action === "expand";
     this.scheduleUpdate();
   }
+}
+
+function getOptimizationReason(
+  msg: MessageModel,
+  viewport: ReturnType<typeof getViewportInfo>,
+  cfg: EngineConfig
+): string {
+  const distanceScreens = getDistanceInScreens(msg.metrics, viewport);
+  if (msg.renderMode === "full" && distanceScreens <= cfg.fullBufferScreens) {
+    return "";
+  }
+
+  const reasons: string[] = [];
+  if (distanceScreens > cfg.fullBufferScreens) {
+    reasons.push("远离当前视口");
+  }
+  if (msg.flags.isHeavy) {
+    reasons.push("消息较重");
+  }
+  if (cfg.enablePlaceholder && distanceScreens > cfg.collapseBufferScreens) {
+    reasons.push("当前模式允许占位");
+  }
+  return reasons.join("，") || "为了减少当前页面渲染压力";
+}
+
+function highlightMessage(el: HTMLElement): void {
+  const prevOutline = el.style.outline;
+  const prevOffset = el.style.outlineOffset;
+  const prevTransition = el.style.transition;
+  el.style.outline = "2px solid #f59e0b";
+  el.style.outlineOffset = "4px";
+  el.style.transition = "outline-color 0.4s ease";
+  window.setTimeout(() => {
+    el.style.outline = prevOutline;
+    el.style.outlineOffset = prevOffset;
+    el.style.transition = prevTransition;
+  }, 1800);
 }
 
 export function decideRenderMode(

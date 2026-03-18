@@ -3,7 +3,7 @@ import type { ChatSiteAdapter } from "../adapters/base";
 import { OptimizationEngine } from "../core/engine";
 import { defaultMode, getConfigForMode } from "../shared/config";
 import { EXT_ROOT_ATTR } from "../shared/constants";
-import type { PanelPlacement, PerformanceMode } from "../shared/types";
+import type { OptimizedMessageSummary, PanelPlacement, PerformanceMode } from "../shared/types";
 import { mountPanel, unmountPanel, updatePanelState } from "../ui/panel";
 import "../ui/styles.css";
 
@@ -33,6 +33,14 @@ export function bootstrap(): void {
     },
     onRestoreAll() {
       engine?.restoreAll();
+      refreshPanel();
+    },
+    onJumpMessage(messageId) {
+      engine?.jumpToMessage(messageId);
+      refreshPanel();
+    },
+    onRestoreMessage(messageId) {
+      engine?.restoreMessage(messageId);
       refreshPanel();
     }
   });
@@ -149,6 +157,7 @@ function buildPanelState() {
     heavy: 0,
     streaming: 0
   };
+  const optimizedMessages: OptimizedMessageSummary[] = engine?.getOptimizedMessages() ?? [];
   return {
     enabled: enabledState,
     paused: pausedState,
@@ -158,7 +167,8 @@ function buildPanelState() {
     placement: placementState,
     collapsedCount: stats.collapsed,
     placeholderCount: stats.placeholder,
-    totalCount: stats.total
+    totalCount: stats.total,
+    optimizedMessages
   };
 }
 
