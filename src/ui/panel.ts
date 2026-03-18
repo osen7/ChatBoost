@@ -325,13 +325,13 @@ function renderDetail(): void {
     return;
   }
   detailEl.innerHTML = `
-    <div class="cbx-detail-title">Status</div>
-    <div class="cbx-detail-row">Mode: <b>${state.modeLabel}</b></div>
+    <div class="cbx-detail-title">状态</div>
+    <div class="cbx-detail-row">模式：<b>${state.modeLabel}</b></div>
     <div class="cbx-detail-row">${state.modeHint}</div>
-    <div class="cbx-detail-row">Placement: <b>${state.placementLabel}</b></div>
-    <div class="cbx-detail-row">Total: ${state.totalCount}</div>
-    <div class="cbx-detail-row">Collapsed: ${state.collapsedCount}</div>
-    <div class="cbx-detail-row">Placeholder: ${state.placeholderCount}</div>
+    <div class="cbx-detail-row">位置：<b>${state.placementLabel}</b></div>
+    <div class="cbx-detail-row">消息总数：${state.totalCount}</div>
+    <div class="cbx-detail-row">已折叠：${state.collapsedCount}</div>
+    <div class="cbx-detail-row">已占位：${state.placeholderCount}</div>
   `;
   setDetailVisible(statusOpen);
 }
@@ -426,13 +426,13 @@ function createToolButton(action: Action, icon: string): HTMLButtonElement {
 }
 
 function getActionLabel(action: Action, s: PanelState): string {
-  if (action === "toggle-enabled") return s.enabled ? "Disable boost" : "Enable boost";
-  if (action === "toggle-pause") return s.paused ? "Resume page" : "Pause this page";
-  if (action === "restore") return "Restore all messages";
-  if (action === "mode") return `Mode: ${s.modeLabel}`;
-  if (action === "placement") return `Place: ${s.placementLabel}`;
-  if (action === "status") return "Open status";
-  return "Hide widget";
+  if (action === "toggle-enabled") return s.enabled ? "关闭加速" : "开启加速";
+  if (action === "toggle-pause") return s.paused ? "恢复本页优化" : "暂停本页优化";
+  if (action === "restore") return "恢复全部消息";
+  if (action === "mode") return `模式：${s.modeLabel}`;
+  if (action === "placement") return `位置：${s.placementLabel}`;
+  if (action === "status") return "查看状态";
+  return "隐藏控件";
 }
 
 function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, cluster: HTMLDivElement): () => void {
@@ -731,10 +731,10 @@ const styles = `
   box-shadow:0 8px 20px rgba(15,23,42,.12);
 }
 .cbx-cluster[data-side="right"] .cbx-tooltip{
-  right:calc(100% + 54px);
+  right:calc(100% + 46px);
 }
 .cbx-cluster[data-side="left"] .cbx-tooltip{
-  left:calc(100% + 54px);
+  left:calc(100% + 46px);
 }
 .cbx-detail{
   position:absolute;
