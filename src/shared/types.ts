@@ -12,6 +12,7 @@ export interface MessageMetrics {
 export interface MessageFlags {
   isStreaming: boolean;
   isPinned: boolean;
+  isTemporarilyRevealed: boolean;
   isHeavy: boolean;
   isInteractive: boolean;
 }

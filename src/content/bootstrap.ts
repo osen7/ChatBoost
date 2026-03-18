@@ -60,12 +60,17 @@ export function bootstrap(): void {
     return;
   }
 
+  const nextEngine = new OptimizationEngine(adapter, getConfigForMode(modeState));
+  const started = nextEngine.start();
+  if (!started) {
+    return;
+  }
+
+  engine = nextEngine;
   activeAdapter = adapter;
   lastUrl = window.location.href;
   lastThreadId = adapter.getThreadId();
   document.documentElement.setAttribute(EXT_ROOT_ATTR, "1");
-  engine = new OptimizationEngine(adapter, getConfigForMode(modeState));
-  engine.start();
   startStatsPolling();
   startUrlWatch();
   startRouteHooks();

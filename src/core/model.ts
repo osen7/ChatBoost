@@ -54,6 +54,7 @@ function createModel(adapter: ChatSiteAdapter, el: HTMLElement, id: string): Mes
     flags: {
       isStreaming: adapter.isStreaming(el),
       isPinned: false,
+      isTemporarilyRevealed: false,
       isHeavy: contentEl ? detectHeavyMessage(contentEl) : false,
       isInteractive: false
     },

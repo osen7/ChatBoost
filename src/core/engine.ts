@@ -20,6 +20,7 @@ export class OptimizationEngine {
   private readonly onScroll = throttle(() => this.scheduleUpdate(), 80);
   private readonly onClick = (event: MouseEvent) => this.handleClick(event);
   private readonly observer = new MutationObserver(() => this.scheduleRefresh());
+  private readonly temporaryRevealTimers = new Map<string, number>();
   private config: EngineConfig;
   private stopped = false;
   private thread: ThreadState;
@@ -29,11 +30,11 @@ export class OptimizationEngine {
     this.thread = createEmptyThread(adapter.site);
   }
 
-  start(): void {
+  start(): boolean {
     this.stopped = false;
     const root = this.adapter.getThreadRoot();
     if (!root) {
-      return;
+      return false;
     }
 
     window.addEventListener("scroll", this.onScroll, { passive: true });
@@ -41,6 +42,7 @@ export class OptimizationEngine {
     this.observer.observe(root, { subtree: true, childList: true, characterData: true });
     this.refreshThread();
     this.scheduleUpdate();
+    return true;
   }
 
   stop(): void {
@@ -51,11 +53,14 @@ export class OptimizationEngine {
     window.removeEventListener("scroll", this.onScroll);
     document.removeEventListener("click", this.onClick, true);
     this.observer.disconnect();
+    this.clearTemporaryReveals();
   }
 
   restoreAll(): void {
+    this.clearTemporaryReveals();
     for (const msg of this.thread.messages) {
       msg.flags.isPinned = false;
+      msg.flags.isTemporarilyRevealed = false;
       applyRenderMode(msg, "full");
     }
   }
@@ -118,12 +123,11 @@ export class OptimizationEngine {
     if (!msg) {
       return;
     }
-    msg.flags.isPinned = true;
+    this.revealTemporarily(msg);
     msg.optimizationReason = undefined;
     msg.lastModeChangedAt = Date.now();
     applyRenderMode(msg, "full");
-    msg.el.scrollIntoView({ behavior: "smooth", block: "center" });
-    highlightMessage(msg.el);
+    this.scrollIntoViewAfterLayout(msg);
   }
 
   restoreMessage(messageId: string): void {
@@ -131,7 +135,7 @@ export class OptimizationEngine {
     if (!msg) {
       return;
     }
-    msg.flags.isPinned = true;
+    this.revealTemporarily(msg);
     msg.optimizationReason = undefined;
     msg.lastModeChangedAt = Date.now();
     applyRenderMode(msg, "full");
@@ -191,6 +195,40 @@ export class OptimizationEngine {
     }
   }
 
+  private revealTemporarily(msg: MessageModel, durationMs = 15000): void {
+    const prevTimer = this.temporaryRevealTimers.get(msg.id);
+    if (prevTimer !== undefined) {
+      window.clearTimeout(prevTimer);
+    }
+
+    msg.flags.isTemporarilyRevealed = true;
+    const timerId = window.setTimeout(() => {
+      this.temporaryRevealTimers.delete(msg.id);
+      msg.flags.isTemporarilyRevealed = false;
+      this.scheduleUpdate();
+    }, durationMs);
+    this.temporaryRevealTimers.set(msg.id, timerId);
+  }
+
+  private clearTemporaryReveals(): void {
+    for (const timerId of this.temporaryRevealTimers.values()) {
+      window.clearTimeout(timerId);
+    }
+    this.temporaryRevealTimers.clear();
+  }
+
+  private scrollIntoViewAfterLayout(msg: MessageModel): void {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (this.stopped || !msg.el.isConnected) {
+          return;
+        }
+        msg.el.scrollIntoView({ behavior: "smooth", block: "center" });
+        highlightMessage(msg.el);
+      });
+    });
+  }
+
   private handleClick(event: MouseEvent): void {
     const control = readControlAction(event.target);
     if (!control) {
@@ -205,6 +243,9 @@ export class OptimizationEngine {
     }
 
     msg.flags.isPinned = control.action === "expand";
+    if (!msg.flags.isPinned) {
+      msg.flags.isTemporarilyRevealed = false;
+    }
     this.scheduleUpdate();
   }
 }
@@ -251,7 +292,7 @@ export function decideRenderMode(
   viewport: ReturnType<typeof getViewportInfo>,
   cfg: EngineConfig
 ): RenderMode {
-  if (msg.flags.isStreaming || msg.flags.isPinned) {
+  if (msg.flags.isStreaming || msg.flags.isPinned || msg.flags.isTemporarilyRevealed) {
     return "full";
   }
 
