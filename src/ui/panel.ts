@@ -58,9 +58,10 @@ let detailMode: "status" | "optimized" | null = null;
 let detailAnchorEl: HTMLElement | null = null;
 let dragActive = false;
 let dragMoved = false;
-let dragOffsetX = 0;
 let dragOffsetY = 0;
 let manualPositionLocked = false;
+let optimizedListScrollTop = 0;
+let optimizedNavIndex = 0;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
 const DRAG_THRESHOLD = 6;
@@ -347,11 +348,25 @@ function renderDetail(): void {
   if (!detailEl || !state) {
     return;
   }
+  const prevList = detailEl.querySelector<HTMLElement>(".cbx-optimized-list");
+  if (detailMode === "optimized" && prevList) {
+    optimizedListScrollTop = prevList.scrollTop;
+  }
+
+  if (detailMode === "optimized") {
+    syncOptimizedNavIndex();
+  }
   detailEl.innerHTML = detailMode === "optimized" ? renderOptimizedDetail(state) : renderStatusDetail(state);
   bindDetailActions(detailEl);
   setDetailVisible(detailMode !== null);
   if (detailMode !== null) {
     positionDetailPanel();
+  }
+  if (detailMode === "optimized") {
+    const nextList = detailEl.querySelector<HTMLElement>(".cbx-optimized-list");
+    if (nextList) {
+      nextList.scrollTop = optimizedListScrollTop;
+    }
   }
 }
 
@@ -474,20 +489,23 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
       if (!messageId) {
         return;
       }
+      if (state) {
+        const idx = state.optimizedMessages.findIndex((item) => item.id === messageId);
+        if (idx >= 0) {
+          optimizedNavIndex = idx;
+        }
+      }
       handlersRef?.onJumpMessage(messageId);
     };
   }
 
-  const restoreButtons = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-restore]");
-  for (const btn of restoreButtons) {
+  const navButtons = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-nav]");
+  for (const btn of navButtons) {
     btn.onclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const messageId = btn.dataset.cbxRestore;
-      if (!messageId) {
-        return;
-      }
-      handlersRef?.onRestoreMessage(messageId);
+      const dir = btn.dataset.cbxNav;
+      jumpByNav(dir === "prev" ? -1 : 1);
     };
   }
 }
@@ -514,18 +532,15 @@ function renderStatusDetail(s: PanelState): string {
 }
 
 function renderOptimizedDetail(s: PanelState): string {
+  const navCount = s.optimizedMessages.length;
   const items = s.optimizedMessages
-    .map((item) => {
-      const role = item.role === "user" ? "用户" : item.role === "assistant" ? "助手" : "消息";
+    .map((item, index) => {
+      const role = item.role === "user" ? "问题" : item.role === "assistant" ? "回复" : "消息";
       const mode = item.renderMode === "collapsed" ? "折叠" : "占位";
       return `
-        <div class="cbx-optimized-item" data-cbx-jump="${item.id}">
-          <div class="cbx-optimized-meta">${mode} · ${role}</div>
+        <div class="cbx-optimized-item ${index === optimizedNavIndex ? "cbx-optimized-item-active" : ""}" data-cbx-jump="${item.id}">
+          <div class="cbx-optimized-meta">#${index + 1} · ${mode} · ${role}</div>
           <div class="cbx-optimized-preview">${escapeHtml(item.previewText || "(空内容)")}</div>
-          <div class="cbx-optimized-reason">${escapeHtml(item.optimizationReason)}</div>
-          <div class="cbx-optimized-actions">
-            <button class="cbx-detail-btn" type="button" data-cbx-restore="${item.id}">临时恢复(4s)</button>
-          </div>
         </div>
       `;
     })
@@ -533,6 +548,10 @@ function renderOptimizedDetail(s: PanelState): string {
 
   return `
     <div class="cbx-detail-title">已轻量化内容</div>
+    <div class="cbx-optimized-nav">
+      <button class="cbx-detail-btn" type="button" data-cbx-nav="prev" ${navCount > 0 ? "" : "disabled"}>上一条</button>
+      <button class="cbx-detail-btn" type="button" data-cbx-nav="next" ${navCount > 0 ? "" : "disabled"}>下一条</button>
+    </div>
     <div class="cbx-detail-row">当前共有 ${s.optimizedMessages.length} 条消息被折叠或占位。</div>
     <div class="cbx-detail-row">点击条目会立即定位并临时恢复，约 4 秒后自动回到优化策略。</div>
     <div class="cbx-optimized-list">${items || '<div class="cbx-detail-row">当前没有被轻量化的消息。</div>'}</div>
@@ -553,17 +572,37 @@ function pressureToLabel(level: PressureLevel): string {
   return "Medium";
 }
 
+function syncOptimizedNavIndex(): void {
+  if (!state) {
+    optimizedNavIndex = 0;
+    return;
+  }
+  const maxIndex = Math.max(state.optimizedMessages.length - 1, 0);
+  optimizedNavIndex = clamp(optimizedNavIndex, 0, maxIndex);
+}
+
+function jumpByNav(offset: -1 | 1): void {
+  if (!state || state.optimizedMessages.length === 0) {
+    return;
+  }
+  syncOptimizedNavIndex();
+  optimizedNavIndex = clamp(optimizedNavIndex + offset, 0, state.optimizedMessages.length - 1);
+  const target = state.optimizedMessages[optimizedNavIndex];
+  if (!target) {
+    return;
+  }
+  handlersRef?.onJumpMessage(target.id);
+  renderState();
+}
+
 function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement): () => void {
-  let startX = 0;
   let startY = 0;
 
   const onMouseDown = (event: MouseEvent) => {
     dragActive = true;
     dragMoved = false;
-    startX = event.clientX;
     startY = event.clientY;
     const rect = hostEl.getBoundingClientRect();
-    dragOffsetX = event.clientX - rect.left;
     dragOffsetY = event.clientY - rect.top;
     hostEl.style.left = `${rect.left}px`;
     hostEl.style.top = `${rect.top}px`;
@@ -576,18 +615,15 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement): 
     if (!dragActive) {
       return;
     }
-    const moved = Math.hypot(event.clientX - startX, event.clientY - startY);
+    const moved = Math.abs(event.clientY - startY);
     if (moved > DRAG_THRESHOLD) {
       dragMoved = true;
     }
     if (!dragMoved) {
       return;
     }
-    const maxLeft = Math.max(window.innerWidth - hostEl.offsetWidth - 6, 0);
     const maxTop = Math.max(window.innerHeight - hostEl.offsetHeight - 6, 0);
-    const left = clamp(event.clientX - dragOffsetX, 6, maxLeft);
     const top = clamp(event.clientY - dragOffsetY, 6, maxTop);
-    hostEl.style.left = `${left}px`;
     hostEl.style.top = `${top}px`;
   };
 
@@ -865,6 +901,15 @@ const styles = `
   background:#fafafa;
   cursor:pointer;
 }
+.cbx-optimized-item-active{
+  border-color:#94a3b8;
+  background:#f1f5f9;
+}
+.cbx-optimized-nav{
+  display:flex;
+  gap:6px;
+  margin-bottom:6px;
+}
 .cbx-optimized-meta{
   font-size:10px;
   color:#64748b;
@@ -874,17 +919,11 @@ const styles = `
   font-size:11px;
   color:#0f172a;
   line-height:1.5;
-  margin-bottom:4px;
-}
-.cbx-optimized-reason{
-  font-size:10px;
-  color:#475569;
-  line-height:1.4;
-  margin-bottom:6px;
-}
-.cbx-optimized-actions{
-  display:flex;
-  gap:6px;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 .cbx-detail-btn{
   border:1px solid #cbd5e1;
