@@ -1,5 +1,5 @@
 import { PANEL_ATTR } from "../shared/constants";
-import type { OptimizedMessageSummary, PanelPlacement } from "../shared/types";
+import type { OptimizedMessageSummary, PanelPlacement, PressureLevel } from "../shared/types";
 
 interface PanelHandlers {
   onToggleEnabled(nextEnabled: boolean): void;
@@ -20,6 +20,13 @@ export interface PanelState {
   collapsedCount: number;
   placeholderCount: number;
   totalCount: number;
+  domNodeCount: number;
+  preCount: number;
+  dehydratedCount: number;
+  lastUpdateMs: number;
+  avgUpdateMs: number;
+  longTaskCount5s: number;
+  pressureLevel: PressureLevel;
   optimizedMessages: OptimizedMessageSummary[];
 }
 
@@ -471,10 +478,17 @@ function renderStatusDetail(s: PanelState): string {
     <div class="cbx-detail-title">状态</div>
     <div class="cbx-detail-row">模式：<b>${s.modeLabel}</b></div>
     <div class="cbx-detail-row">${s.modeHint}</div>
+    <div class="cbx-detail-row">压力等级：<b>${pressureToLabel(s.pressureLevel)}</b></div>
     <div class="cbx-detail-row">位置：<b>${s.placementLabel}</b></div>
     <div class="cbx-detail-row">消息总数：${s.totalCount}</div>
     <div class="cbx-detail-row">已折叠：${s.collapsedCount}</div>
     <div class="cbx-detail-row">已占位：${s.placeholderCount}</div>
+    <div class="cbx-detail-row">DOM 节点：${s.domNodeCount}</div>
+    <div class="cbx-detail-row">代码块(pre)：${s.preCount}</div>
+    <div class="cbx-detail-row">脱水消息：${s.dehydratedCount}</div>
+    <div class="cbx-detail-row">最近更新耗时：${s.lastUpdateMs.toFixed(1)}ms</div>
+    <div class="cbx-detail-row">平均更新耗时：${s.avgUpdateMs.toFixed(1)}ms</div>
+    <div class="cbx-detail-row">5s Long Task：${s.longTaskCount5s}</div>
   `;
 }
 
@@ -510,6 +524,12 @@ function escapeHtml(input: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function pressureToLabel(level: PressureLevel): string {
+  if (level === "high") return "High";
+  if (level === "low") return "Low";
+  return "Medium";
 }
 
 function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement): () => void {

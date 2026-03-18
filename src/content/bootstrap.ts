@@ -175,7 +175,14 @@ function buildPanelState() {
     collapsed: 0,
     placeholder: 0,
     heavy: 0,
-    streaming: 0
+    streaming: 0,
+    domNodeCount: 0,
+    preCount: 0,
+    dehydratedCount: 0,
+    lastUpdateMs: 0,
+    avgUpdateMs: 0,
+    longTaskCount5s: 0,
+    pressureLevel: "medium" as const
   };
   const optimizedMessages: OptimizedMessageSummary[] = engine?.getOptimizedMessages() ?? [];
   return {
@@ -188,6 +195,13 @@ function buildPanelState() {
     collapsedCount: stats.collapsed,
     placeholderCount: stats.placeholder,
     totalCount: stats.total,
+    domNodeCount: stats.domNodeCount,
+    preCount: stats.preCount,
+    dehydratedCount: stats.dehydratedCount,
+    lastUpdateMs: stats.lastUpdateMs,
+    avgUpdateMs: stats.avgUpdateMs,
+    longTaskCount5s: stats.longTaskCount5s,
+    pressureLevel: stats.pressureLevel,
     optimizedMessages
   };
 }

@@ -47,6 +47,7 @@ export interface EngineConfig {
 }
 
 export type PerformanceMode = "lite" | "balanced" | "aggressive";
+export type PressureLevel = "low" | "medium" | "high";
 export type PanelPlacement = "right";
 
 export interface ViewportInfo {
@@ -62,6 +63,13 @@ export interface EngineStats {
   placeholder: number;
   heavy: number;
   streaming: number;
+  domNodeCount: number;
+  preCount: number;
+  dehydratedCount: number;
+  lastUpdateMs: number;
+  avgUpdateMs: number;
+  longTaskCount5s: number;
+  pressureLevel: PressureLevel;
 }
 
 export interface OptimizedMessageSummary {
