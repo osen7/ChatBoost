@@ -14,6 +14,7 @@ let modeState: PerformanceMode = defaultMode;
 let placementState: PanelPlacement = "auto";
 let statsTimer: number | null = null;
 let urlWatchTimer: number | null = null;
+let stopRouteHooks: (() => void) | null = null;
 let lastUrl = "";
 let lastThreadId = "";
 let activeAdapter: ChatSiteAdapter | null = null;
@@ -61,6 +62,7 @@ export function bootstrap(): void {
   engine.start();
   startStatsPolling();
   startUrlWatch();
+  startRouteHooks();
   refreshPanel();
 }
 
@@ -70,6 +72,7 @@ export function shutdown(): void {
   stopEngineAndRestore();
   stopStatsPolling();
   stopUrlWatch();
+  stopRouteWatchHooks();
   document.documentElement.removeAttribute(EXT_ROOT_ATTR);
   refreshPanel();
 }
@@ -107,6 +110,7 @@ export function setPaused(paused: boolean): void {
     stopEngineAndRestore();
     stopStatsPolling();
     stopUrlWatch();
+    stopRouteWatchHooks();
     refreshPanel();
     return;
   }
@@ -186,19 +190,8 @@ function startUrlWatch(): void {
     return;
   }
   urlWatchTimer = window.setInterval(() => {
-    if (!engine || !activeAdapter || !enabledState || pausedState) {
-      return;
-    }
-    const nextUrl = window.location.href;
-    const nextThreadId = activeAdapter.getThreadId();
-    if (nextUrl === lastUrl && nextThreadId === lastThreadId) {
-      return;
-    }
-    lastUrl = nextUrl;
-    lastThreadId = nextThreadId;
-    engine.reset();
-    refreshPanel();
-  }, 500);
+    detectConversationChange();
+  }, 1500);
 }
 
 function stopUrlWatch(): void {
@@ -207,6 +200,64 @@ function stopUrlWatch(): void {
   }
   window.clearInterval(urlWatchTimer);
   urlWatchTimer = null;
+}
+
+function startRouteHooks(): void {
+  if (stopRouteHooks) {
+    return;
+  }
+
+  const notify = () => detectConversationChange();
+  const onPopstate = () => notify();
+  const onHash = () => notify();
+  const onCustom = () => notify();
+
+  window.addEventListener("popstate", onPopstate, true);
+  window.addEventListener("hashchange", onHash, true);
+  window.addEventListener("chatboost:urlchange", onCustom, true);
+
+  const rawPush = history.pushState.bind(history);
+  const rawReplace = history.replaceState.bind(history);
+
+  history.pushState = function patchedPushState(...args) {
+    const result = rawPush(...args);
+    window.dispatchEvent(new Event("chatboost:urlchange"));
+    return result;
+  };
+
+  history.replaceState = function patchedReplaceState(...args) {
+    const result = rawReplace(...args);
+    window.dispatchEvent(new Event("chatboost:urlchange"));
+    return result;
+  };
+
+  stopRouteHooks = () => {
+    history.pushState = rawPush;
+    history.replaceState = rawReplace;
+    window.removeEventListener("popstate", onPopstate, true);
+    window.removeEventListener("hashchange", onHash, true);
+    window.removeEventListener("chatboost:urlchange", onCustom, true);
+    stopRouteHooks = null;
+  };
+}
+
+function stopRouteWatchHooks(): void {
+  stopRouteHooks?.();
+}
+
+function detectConversationChange(): void {
+  if (!engine || !activeAdapter || !enabledState || pausedState) {
+    return;
+  }
+  const nextUrl = window.location.href;
+  const nextThreadId = activeAdapter.getThreadId();
+  if (nextUrl === lastUrl && nextThreadId === lastThreadId) {
+    return;
+  }
+  lastUrl = nextUrl;
+  lastThreadId = nextThreadId;
+  engine.reset();
+  refreshPanel();
 }
 
 function modeToLabel(mode: PerformanceMode): string {

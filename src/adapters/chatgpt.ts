@@ -21,7 +21,14 @@ export class ChatGptAdapter implements ChatSiteAdapter {
     if (match?.[1]) {
       return `c:${match[1]}`;
     }
-    return `path:${window.location.pathname}`;
+
+    const domId = this.readThreadIdFromDom();
+    if (domId) {
+      return `dom:${domId}`;
+    }
+
+    const search = window.location.search || "";
+    return `path:${window.location.pathname}${search}`;
   }
 
   getMessageElements(): HTMLElement[] {
@@ -112,6 +119,21 @@ export class ChatGptAdapter implements ChatSiteAdapter {
       child.getAttribute("data-message-id") ??
       child.getAttribute("data-testid") ??
       child.id ??
+      null
+    );
+  }
+
+  private readThreadIdFromDom(): string | null {
+    const threadNode = document.querySelector<HTMLElement>(
+      "[data-conversation-id],[data-thread-id],[data-testid='conversation-turns']"
+    );
+    if (!threadNode) {
+      return null;
+    }
+
+    return (
+      threadNode.getAttribute("data-conversation-id") ??
+      threadNode.getAttribute("data-thread-id") ??
       null
     );
   }
