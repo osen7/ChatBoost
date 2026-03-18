@@ -177,7 +177,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
 
   const clickHandler = (event: Event) => {
     const target = event.target;
-    if (!(target instanceof HTMLElement)) {
+    if (!(target instanceof Element)) {
       return;
     }
     if (dragMoved) {
@@ -185,14 +185,15 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
       return;
     }
 
-    if (target.classList.contains("cbx-anchor")) {
+    if (target.closest(".cbx-anchor")) {
       statusOpen = !statusOpen;
       setDetailVisible(statusOpen);
       renderState();
       return;
     }
 
-    const action = target.getAttribute("data-cbx-action") as Action | null;
+    const actionNode = target.closest("[data-cbx-action]");
+    const action = actionNode?.getAttribute("data-cbx-action") as Action | null;
     if (!action) {
       return;
     }
@@ -203,12 +204,13 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
 
   const moveHandler = (event: Event) => {
     const target = event.target;
-    if (!(target instanceof HTMLElement)) {
+    if (!(target instanceof Element)) {
       hoverAction = null;
       renderTooltip();
       return;
     }
-    const action = target.getAttribute("data-cbx-action") as Action | null;
+    const actionNode = target.closest("[data-cbx-action]");
+    const action = actionNode?.getAttribute("data-cbx-action") as Action | null;
     hoverAction = action;
     renderTooltip();
   };
@@ -414,6 +416,11 @@ function createToolButton(action: Action, icon: string): HTMLButtonElement {
   btn.className = "cbx-tool";
   btn.dataset.cbxAction = action;
   btn.setAttribute("data-cbx-action", action);
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    runAction(action);
+  });
   btn.innerHTML = icon;
   return btn;
 }
@@ -669,6 +676,7 @@ const styles = `
   stroke-width:1.8;
   stroke-linecap:round;
   stroke-linejoin:round;
+  pointer-events:none;
 }
 .cbx-anchor-label{
   letter-spacing:.2px;
@@ -676,14 +684,18 @@ const styles = `
 .cbx-toolbar{
   position:absolute;
   display:flex;
-  gap:6px;
+  flex-direction:column;
+  gap:7px;
   z-index:2;
+  top:50%;
+  transform:translateY(-50%);
+  pointer-events:auto;
 }
 .cbx-cluster[data-side="right"] .cbx-toolbar{
-  right:calc(100% + 8px);
+  right:calc(100% + 10px);
 }
 .cbx-cluster[data-side="left"] .cbx-toolbar{
-  left:calc(100% + 8px);
+  left:calc(100% + 10px);
 }
 .cbx-tool{
   display:grid;
@@ -697,6 +709,7 @@ const styles = `
   font-size:14px;
   cursor:pointer;
   box-shadow:0 4px 14px rgba(15,23,42,.12);
+  pointer-events:auto;
 }
 .cbx-tool svg{
   width:15px;
@@ -718,10 +731,10 @@ const styles = `
   box-shadow:0 8px 20px rgba(15,23,42,.12);
 }
 .cbx-cluster[data-side="right"] .cbx-tooltip{
-  right:calc(100% + 230px);
+  right:calc(100% + 54px);
 }
 .cbx-cluster[data-side="left"] .cbx-tooltip{
-  left:calc(100% + 230px);
+  left:calc(100% + 54px);
 }
 .cbx-detail{
   position:absolute;
