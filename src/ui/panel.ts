@@ -3,11 +3,7 @@ import type { OptimizedMessageSummary, PanelPlacement, PressureLevel } from "../
 
 interface PanelHandlers {
   onToggleEnabled(nextEnabled: boolean): void;
-  onTogglePause(nextPaused: boolean): void;
-  onCycleMode(): void;
-  onRestoreAll(): void;
   onJumpMessage(messageId: string): void;
-  onRestoreMessage(messageId: string): void;
 }
 
 export interface PanelState {
@@ -32,12 +28,7 @@ export interface PanelState {
 
 type Action =
   | "toggle-enabled"
-  | "toggle-pause"
-  | "restore"
-  | "mode"
-  | "optimized"
-  | "status"
-  | "hide";
+  | "optimized";
 
 let host: HTMLDivElement | null = null;
 let state: PanelState | null = null;
@@ -54,7 +45,7 @@ let hidden = false;
 let closeTimer: number | null = null;
 let hoverAction: Action | null = null;
 let hoverToolEl: HTMLElement | null = null;
-let detailMode: "status" | "optimized" | null = null;
+let detailMode: "optimized" | null = null;
 let detailAnchorEl: HTMLElement | null = null;
 let dragActive = false;
 let dragMoved = false;
@@ -78,24 +69,6 @@ const powerIcon = `
   <path d="M7 5.5a8 8 0 1 0 10 0"></path>
 </svg>`;
 
-const pauseIcon = `
-<svg viewBox="0 0 24 24" aria-hidden="true">
-  <path d="M9 5v14"></path>
-  <path d="M15 5v14"></path>
-</svg>`;
-
-const restoreIcon = `
-<svg viewBox="0 0 24 24" aria-hidden="true">
-  <path d="M3 12a9 9 0 1 0 3-6.7"></path>
-  <path d="M3 4v5h5"></path>
-</svg>`;
-
-const modeIcon = `
-<svg viewBox="0 0 24 24" aria-hidden="true">
-  <path d="M12 3a9 9 0 1 0 0 18"></path>
-  <path d="M12 3a9 9 0 0 1 0 18"></path>
-</svg>`;
-
 const optimizedIcon = `
 <svg viewBox="0 0 24 24" aria-hidden="true">
   <path d="M4 7h16"></path>
@@ -103,27 +76,9 @@ const optimizedIcon = `
   <path d="M4 17h11"></path>
 </svg>`;
 
-const statusIcon = `
-<svg viewBox="0 0 24 24" aria-hidden="true">
-  <path d="M12 8v4"></path>
-  <path d="M12 16h.01"></path>
-  <circle cx="12" cy="12" r="9"></circle>
-</svg>`;
-
-const closeIcon = `
-<svg viewBox="0 0 24 24" aria-hidden="true">
-  <path d="m6 6 12 12"></path>
-  <path d="M18 6 6 18"></path>
-</svg>`;
-
 const TOOL_ACTIONS: Array<{ action: Action; icon: string }> = [
   { action: "toggle-enabled", icon: powerIcon },
-  { action: "toggle-pause", icon: pauseIcon },
-  { action: "restore", icon: restoreIcon },
-  { action: "mode", icon: modeIcon },
-  { action: "optimized", icon: optimizedIcon },
-  { action: "status", icon: statusIcon },
-  { action: "hide", icon: closeIcon }
+  { action: "optimized", icon: optimizedIcon }
 ];
 
 export function mountPanel(initialState: PanelState, handlers: PanelHandlers): void {
@@ -197,10 +152,15 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     }
 
     if (target.closest(".cbx-anchor")) {
-      detailAnchorEl = toolbarEl ?? anchorEl;
-      detailMode = detailMode === "status" ? null : "status";
-      setDetailVisible(detailMode !== null);
+      if (!state) {
+        return;
+      }
+      state.enabled = !state.enabled;
+      if (!state.enabled) {
+        state.paused = false;
+      }
       renderState();
+      handlersRef?.onToggleEnabled(state.enabled);
       return;
     }
 
@@ -356,7 +316,7 @@ function renderDetail(): void {
   if (detailMode === "optimized") {
     syncOptimizedNavIndex();
   }
-  detailEl.innerHTML = detailMode === "optimized" ? renderOptimizedDetail(state) : renderStatusDetail(state);
+  detailEl.innerHTML = renderOptimizedDetail(state);
   bindDetailActions(detailEl);
   setDetailVisible(detailMode !== null);
   if (detailMode !== null) {
@@ -422,37 +382,12 @@ function runAction(action: Action, sourceEl?: HTMLElement): void {
     handlersRef?.onToggleEnabled(state.enabled);
     return;
   }
-  if (action === "toggle-pause") {
-    state.paused = !state.paused;
-    renderState();
-    handlersRef?.onTogglePause(state.paused);
-    return;
-  }
-  if (action === "restore") {
-    handlersRef?.onRestoreAll();
-    return;
-  }
-  if (action === "mode") {
-    handlersRef?.onCycleMode();
-    return;
-  }
   if (action === "optimized") {
     detailAnchorEl = sourceEl ?? hoverToolEl ?? toolbarEl;
     detailMode = detailMode === "optimized" ? null : "optimized";
     setDetailVisible(detailMode !== null);
     renderState();
     return;
-  }
-  if (action === "status") {
-    detailAnchorEl = sourceEl ?? hoverToolEl ?? toolbarEl;
-    detailMode = detailMode === "status" ? null : "status";
-    setDetailVisible(detailMode !== null);
-    renderState();
-    return;
-  }
-  if (action === "hide" && host) {
-    hidden = true;
-    host.style.display = "none";
   }
 }
 
@@ -473,12 +408,7 @@ function createToolButton(action: Action, icon: string): HTMLButtonElement {
 
 function getActionLabel(action: Action, s: PanelState): string {
   if (action === "toggle-enabled") return s.enabled ? "关闭加速" : "开启加速";
-  if (action === "toggle-pause") return s.paused ? "恢复本页优化" : "暂停本页优化";
-  if (action === "restore") return "恢复全部消息";
-  if (action === "mode") return `模式：${s.modeLabel}`;
-  if (action === "optimized") return "查看问题索引";
-  if (action === "status") return "查看状态";
-  return "隐藏控件";
+  return "查看问题索引";
 }
 
 function bindDetailActions(detailRoot: HTMLDivElement): void {
@@ -508,27 +438,6 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
       jumpByNav(dir === "prev" ? -1 : 1);
     };
   }
-}
-
-function renderStatusDetail(s: PanelState): string {
-  return `
-    <div class="cbx-detail-title">状态</div>
-    <div class="cbx-detail-row">加速：<b>${s.enabled ? "开启" : "关闭"}</b></div>
-    <div class="cbx-detail-row">本页优化：<b>${s.paused ? "已暂停" : "运行中"}</b></div>
-    <div class="cbx-detail-row">模式：<b>${s.modeLabel}</b></div>
-    <div class="cbx-detail-row">${s.modeHint}</div>
-    <div class="cbx-detail-row">压力等级：<b>${pressureToLabel(s.pressureLevel)}</b></div>
-    <div class="cbx-detail-row">位置：<b>${s.placementLabel}</b></div>
-    <div class="cbx-detail-row">消息总数：${s.totalCount}</div>
-    <div class="cbx-detail-row">已折叠：${s.collapsedCount}</div>
-    <div class="cbx-detail-row">已占位：${s.placeholderCount}</div>
-    <div class="cbx-detail-row">DOM 节点：${s.domNodeCount}</div>
-    <div class="cbx-detail-row">代码块(pre)：${s.preCount}</div>
-    <div class="cbx-detail-row">脱水消息：${s.dehydratedCount}</div>
-    <div class="cbx-detail-row">最近更新耗时：${s.lastUpdateMs.toFixed(1)}ms</div>
-    <div class="cbx-detail-row">平均更新耗时：${s.avgUpdateMs.toFixed(1)}ms</div>
-    <div class="cbx-detail-row">5s Long Task：${s.longTaskCount5s}</div>
-  `;
 }
 
 function renderOptimizedDetail(s: PanelState): string {
@@ -564,12 +473,6 @@ function escapeHtml(input: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-function pressureToLabel(level: PressureLevel): string {
-  if (level === "high") return "High";
-  if (level === "low") return "Low";
-  return "Medium";
 }
 
 function syncOptimizedNavIndex(): void {

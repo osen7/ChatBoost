@@ -26,22 +26,8 @@ export function bootstrap(): void {
     onToggleEnabled(nextEnabled) {
       setEnabled(nextEnabled);
     },
-    onTogglePause(nextPaused) {
-      setPaused(nextPaused);
-    },
-    onCycleMode() {
-      setMode(nextMode(modeState));
-    },
-    onRestoreAll() {
-      engine?.restoreAll();
-      refreshPanel();
-    },
     onJumpMessage(messageId) {
       engine?.jumpToMessage(messageId);
-      refreshPanel();
-    },
-    onRestoreMessage(messageId) {
-      engine?.restoreMessage(messageId);
       refreshPanel();
     }
   });
