@@ -56,7 +56,7 @@ function createModel(adapter: ChatSiteAdapter, el: HTMLElement, id: string): Mes
       isPinned: false,
       isTemporarilyRevealed: false,
       isHeavy: contentEl ? detectHeavyMessage(contentEl) : false,
-      isInteractive: false
+      isInteractive: contentEl ? detectInteractiveMessage(contentEl) : false
     },
     renderMode: "full",
     previewText
@@ -78,11 +78,20 @@ function patchModel(
     flags: {
       ...old.flags,
       isStreaming: adapter.isStreaming(el),
-      isHeavy: contentEl ? detectHeavyMessage(contentEl) : old.flags.isHeavy
+      isHeavy: contentEl ? detectHeavyMessage(contentEl) : old.flags.isHeavy,
+      isInteractive: contentEl ? detectInteractiveMessage(contentEl) : old.flags.isInteractive
     }
   };
 }
 
 function getPreviewText(el: HTMLElement): string {
   return (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function detectInteractiveMessage(contentEl: HTMLElement): boolean {
+  return Boolean(
+    contentEl.querySelector(
+      "button,a[href],input,textarea,select,details,summary,form,[role='button'],[contenteditable='true'],iframe,video,audio"
+    )
+  );
 }

@@ -164,7 +164,11 @@ export class OptimizationEngine {
         return;
       }
       const viewport = getViewportInfo();
+      const measureBufferScreens = Math.max(this.config.collapseBufferScreens + 1, 2);
       for (const msg of this.thread.messages) {
+        if (!shouldMeasureMessage(msg, viewport, measureBufferScreens)) {
+          continue;
+        }
         const rect = msg.el.getBoundingClientRect();
         msg.metrics.top = rect.top + viewport.top;
         msg.metrics.bottom = rect.bottom + viewport.top;
@@ -183,6 +187,11 @@ export class OptimizationEngine {
           return;
         }
         for (const update of updates) {
+          if (update.mode === "collapsed") {
+            update.msg.el.style.maxHeight = `${this.config.collapseHeight}px`;
+          } else {
+            update.msg.el.style.removeProperty("max-height");
+          }
           if (update.mode === "full") {
             update.msg.optimizationReason = undefined;
           } else {
@@ -309,6 +318,9 @@ export function decideRenderMode(
   viewport: ReturnType<typeof getViewportInfo>,
   cfg: EngineConfig
 ): RenderMode {
+  if (!cfg.enableAutoCollapse) {
+    return "full";
+  }
   if (msg.flags.isStreaming || msg.flags.isPinned || msg.flags.isTemporarilyRevealed) {
     return "full";
   }
@@ -321,6 +333,21 @@ export function decideRenderMode(
     return "collapsed";
   }
   return cfg.enablePlaceholder ? "placeholder" : "collapsed";
+}
+
+function shouldMeasureMessage(
+  msg: MessageModel,
+  viewport: ReturnType<typeof getViewportInfo>,
+  bufferScreens: number
+): boolean {
+  if (msg.flags.isStreaming || msg.flags.isPinned || msg.flags.isTemporarilyRevealed) {
+    return true;
+  }
+
+  const margin = viewport.height * bufferScreens;
+  const minTop = viewport.top - margin;
+  const maxBottom = viewport.bottom + margin;
+  return msg.metrics.bottom >= minTop && msg.metrics.top <= maxBottom;
 }
 
 function throttle<T extends (...args: unknown[]) => void>(fn: T, waitMs: number): T {
