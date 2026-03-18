@@ -51,6 +51,7 @@ let dragMoved = false;
 let dragOffsetY = 0;
 let manualPositionLocked = false;
 let optimizedNavIndex = 0;
+let indexCardVisible = false;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
 const DRAG_THRESHOLD = 6;
@@ -94,11 +95,11 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     <style>${styles}</style>
     <div class="cbx-cluster">
       <div class="cbx-track" aria-hidden="true"></div>
-      <button class="cbx-anchor" type="button" aria-label="ThreadSprint">
+      <div class="cbx-toolbar"></div>
+      <button class="cbx-anchor" type="button" aria-label="切换加速">
         <span class="cbx-anchor-icon" aria-hidden="true">${lightningIcon}</span>
-        <span class="cbx-anchor-label">ON</span>
+        <span class="cbx-anchor-label" aria-hidden="true"></span>
       </button>
-      <div class="cbx-toolbar cbx-hidden"></div>
       <div class="cbx-tooltip cbx-hidden"></div>
       <div class="cbx-detail cbx-hidden"></div>
     </div>
@@ -115,22 +116,6 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   }
 
   toolbarEl.replaceChildren(...TOOL_ACTIONS.map((item) => createToolButton(item.action, item.icon)));
-
-  const onMouseEnter = () => {
-    clearCloseTimer();
-    if (!hidden) {
-      setToolbarVisible(true);
-    }
-  };
-  const onMouseLeave = () => {
-    scheduleClose();
-  };
-  clusterEl.addEventListener("mouseenter", onMouseEnter);
-  clusterEl.addEventListener("mouseleave", onMouseLeave);
-  cleanupFns.push(() => {
-    clusterEl?.removeEventListener("mouseenter", onMouseEnter);
-    clusterEl?.removeEventListener("mouseleave", onMouseLeave);
-  });
 
   const clickHandler = (event: Event) => {
     const target = event.target;
@@ -165,23 +150,6 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   shadow.addEventListener("click", clickHandler);
   cleanupFns.push(() => shadow.removeEventListener("click", clickHandler));
 
-  const moveHandler = (event: Event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) {
-      hoverAction = null;
-      hoverToolEl = null;
-      renderTooltip();
-      return;
-    }
-    const actionNode = target.closest("[data-cbx-action]");
-    const action = actionNode?.getAttribute("data-cbx-action") as Action | null;
-    hoverAction = action;
-    hoverToolEl = actionNode instanceof HTMLElement ? actionNode : null;
-    renderTooltip();
-  };
-  shadow.addEventListener("mouseover", moveHandler);
-  cleanupFns.push(() => shadow.removeEventListener("mouseover", moveHandler));
-
   const hostEl = host;
   const dragCleanup = installDragAndSnap(hostEl, anchorEl);
   cleanupFns.push(dragCleanup);
@@ -199,8 +167,6 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     hidden = !hidden;
     hostEl.style.display = hidden ? "none" : "block";
     if (!hidden) {
-      setToolbarVisible(true);
-      scheduleClose();
       if (!manualPositionLocked) {
         applySmartPlacement(hostEl);
       }
@@ -234,6 +200,7 @@ export function unmountPanel(): void {
   detailMode = null;
   detailAnchorEl = null;
   manualPositionLocked = false;
+  indexCardVisible = false;
 }
 
 export function updatePanelState(nextState: PanelState): void {
@@ -248,11 +215,11 @@ function renderState(): void {
 
   const label = anchorEl.querySelector<HTMLElement>(".cbx-anchor-label");
   if (label) {
-    label.textContent = state.enabled ? "ON" : "OFF";
+    label.textContent = "";
   }
   anchorEl.classList.toggle("cbx-anchor-off", !state.enabled);
 
-  updateToolLabels();
+  setToolbarVisible(true);
   renderTooltip();
   renderDetail();
 
@@ -378,10 +345,25 @@ function createToolButton(action: Action, icon: string): HTMLButtonElement {
 }
 
 function getActionLabel(action: Action, s: PanelState): string {
+  void s;
   return "查看问题索引";
 }
 
 function bindDetailActions(detailRoot: HTMLDivElement): void {
+  const navRoot = detailRoot.querySelector<HTMLElement>(".cbx-index-nav");
+  if (navRoot) {
+    navRoot.onmouseenter = () => {
+      indexCardVisible = true;
+      const card = detailRoot.querySelector<HTMLElement>(".cbx-index-card");
+      card?.classList.add("cbx-index-card-visible");
+    };
+    navRoot.onmouseleave = () => {
+      indexCardVisible = false;
+      const card = detailRoot.querySelector<HTMLElement>(".cbx-index-card");
+      card?.classList.remove("cbx-index-card-visible");
+    };
+  }
+
   const jumpCard = detailRoot.querySelector<HTMLElement>("[data-cbx-jump-current]");
   if (jumpCard) {
     jumpCard.onclick = () => {
@@ -394,6 +376,43 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
         return;
       }
       handlersRef?.onJumpMessage(target.id);
+    };
+  }
+
+  const markerLines = detailRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-nav-line]");
+  for (const line of markerLines) {
+    line.onmouseenter = () => {
+      if (!state || state.optimizedMessages.length === 0) {
+        return;
+      }
+      const targetRaw = Number(line.dataset.cbxTargetIndex);
+      if (!Number.isFinite(targetRaw)) {
+        return;
+      }
+      const nextIndex = clamp(Math.round(targetRaw), 0, state.optimizedMessages.length - 1);
+      if (nextIndex === optimizedNavIndex) {
+        return;
+      }
+      optimizedNavIndex = nextIndex;
+      renderState();
+    };
+    line.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!state || state.optimizedMessages.length === 0) {
+        return;
+      }
+      const targetRaw = Number(line.dataset.cbxTargetIndex);
+      if (!Number.isFinite(targetRaw)) {
+        return;
+      }
+      optimizedNavIndex = clamp(Math.round(targetRaw), 0, state.optimizedMessages.length - 1);
+      const target = state.optimizedMessages[optimizedNavIndex];
+      if (!target) {
+        return;
+      }
+      handlersRef?.onJumpMessage(target.id);
+      renderState();
     };
   }
 
@@ -420,10 +439,16 @@ function renderOptimizedDetail(s: PanelState): string {
         ? "占位"
         : "完整";
   const preview = current ? escapeHtml(current.previewText || "(空内容)") : "当前没有可导航的问题索引。";
+  const activeMarker = messageIndexToMarker(safeIndex, navCount);
+  const markerLines = Array.from({ length: 5 }, (_, index) => {
+    const targetIndex = markerToMessageIndex(index, navCount);
+    const active = index === activeMarker ? "cbx-index-line-active" : "";
+    return `<button class="cbx-index-line ${active}" type="button" data-cbx-nav-line="${index}" data-cbx-target-index="${targetIndex}" aria-label="定位到第${targetIndex + 1}条"></button>`;
+  }).join("");
 
   return `
     <div class="cbx-index-widget">
-      <div class="cbx-index-card ${current ? "" : "cbx-index-card-empty"}" role="button" tabindex="0" data-cbx-jump-current ${current ? "" : "aria-disabled=true"}>
+      <div class="cbx-index-card ${current ? "" : "cbx-index-card-empty"} ${indexCardVisible ? "cbx-index-card-visible" : ""}" role="button" tabindex="0" data-cbx-jump-current ${current ? "" : "aria-disabled=true"}>
         <div class="cbx-index-title">问题索引</div>
         <div class="cbx-index-meta">${current ? `${role} · ${mode} · ${safeIndex + 1}/${navCount}` : "暂无索引项"}</div>
         <div class="cbx-index-preview">${preview}</div>
@@ -431,8 +456,9 @@ function renderOptimizedDetail(s: PanelState): string {
       </div>
       <div class="cbx-index-nav">
         <button class="cbx-index-btn" type="button" data-cbx-nav="prev" ${navCount > 0 && safeIndex > 0 ? "" : "disabled"} aria-label="上一个">↑</button>
-        <div class="cbx-index-pos">${navCount > 0 ? `${safeIndex + 1}/${navCount}` : "0/0"}</div>
+        <div class="cbx-index-lines" aria-hidden="true">${markerLines}</div>
         <button class="cbx-index-btn" type="button" data-cbx-nav="next" ${navCount > 0 && safeIndex < navCount - 1 ? "" : "disabled"} aria-label="下一个">↓</button>
+        <div class="cbx-index-pos">${navCount > 0 ? `${safeIndex + 1}/${navCount}` : "0/0"}</div>
       </div>
     </div>
   `;
@@ -461,7 +487,25 @@ function jumpByNav(offset: -1 | 1): void {
   }
   syncOptimizedNavIndex();
   optimizedNavIndex = clamp(optimizedNavIndex + offset, 0, state.optimizedMessages.length - 1);
+  const target = state.optimizedMessages[optimizedNavIndex];
+  if (target) {
+    handlersRef?.onJumpMessage(target.id);
+  }
   renderState();
+}
+
+function messageIndexToMarker(index: number, total: number): number {
+  if (total <= 1) {
+    return 0;
+  }
+  return clamp(Math.round((index / (total - 1)) * 4), 0, 4);
+}
+
+function markerToMessageIndex(marker: number, total: number): number {
+  if (total <= 1) {
+    return 0;
+  }
+  return clamp(Math.round((marker / 4) * (total - 1)), 0, total - 1);
 }
 
 function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement): () => void {
@@ -678,8 +722,16 @@ const styles = `
 .cbx-cluster{
   position:relative;
   display:flex;
+  flex-direction:column;
   align-items:center;
+  gap:10px;
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cbx-border:#cbd5e1;
+  --cbx-text:#0f172a;
+  --cbx-muted:#64748b;
+  --cbx-radius:12px;
+  --cbx-stroke:1px;
+  --cbx-shadow:0 6px 18px rgba(15,23,42,.12);
 }
 .cbx-track{
   position:absolute;
@@ -690,23 +742,22 @@ const styles = `
 }
 .cbx-anchor{
   position:relative;
-  z-index:3;
+  z-index:2;
+}
+.cbx-anchor,
+.cbx-tool{
   display:flex;
-  flex-direction:column;
   align-items:center;
   justify-content:center;
-  gap:2px;
-  width:56px;
-  height:56px;
-  border:1px solid rgba(148,163,184,.55);
+  width:44px;
+  height:44px;
+  border:var(--cbx-stroke) solid var(--cbx-border);
   border-radius:999px;
   padding:0;
-  font-size:10px;
-  font-weight:600;
-  background:rgba(255,255,255,.96);
-  color:#0f172a;
+  background:rgba(255,255,255,.94);
+  color:var(--cbx-text);
   backdrop-filter: blur(8px);
-  box-shadow:0 8px 24px rgba(2,6,23,.16);
+  box-shadow:var(--cbx-shadow);
   cursor:pointer;
 }
 .cbx-anchor-off{
@@ -733,84 +784,66 @@ const styles = `
   pointer-events:none;
 }
 .cbx-anchor-label{
-  letter-spacing:.2px;
-  line-height:1;
-  color:#475569;
-  text-transform:uppercase;
+  display:none;
 }
 .cbx-toolbar{
-  position:absolute;
+  position:relative;
   display:flex;
   flex-direction:column;
-  gap:7px;
-  z-index:2;
-  right:0;
-  bottom:calc(100% + 10px);
+  gap:10px;
+  z-index:3;
   pointer-events:auto;
 }
 .cbx-tool{
-  display:grid;
-  place-items:center;
-  width:30px;
-  height:30px;
-  border:1px solid #cbd5e1;
-  border-radius:999px;
-  background:rgba(255,255,255,.97);
-  color:#1e293b;
   font-size:14px;
-  cursor:pointer;
-  box-shadow:0 4px 14px rgba(15,23,42,.12);
   pointer-events:auto;
 }
 .cbx-tool svg{
-  width:15px;
-  height:15px;
+  width:18px;
+  height:18px;
 }
 .cbx-tooltip{
-  position:absolute;
-  transform:translateY(-50%);
-  max-width:200px;
-  padding:4px 8px;
-  border:1px solid #cbd5e1;
-  border-radius:6px;
-  background:#ffffff;
-  color:#0f172a;
-  font-size:12px;
-  white-space:nowrap;
-  z-index:4;
-  box-shadow:0 8px 20px rgba(15,23,42,.12);
+  display:none !important;
 }
-.cbx-tooltip{ right:36px; }
 .cbx-detail{
   position:absolute;
   top:50%;
   transform:translateY(-50%);
-  width:320px;
-  border:1px solid rgba(148,163,184,.36);
-  border-radius:16px;
+  width:276px;
+  border:var(--cbx-stroke) solid rgba(148,163,184,.32);
+  border-radius:14px;
   background:rgba(255,255,255,.98);
-  color:#0f172a;
+  color:var(--cbx-text);
   padding:10px;
-  box-shadow:0 10px 24px rgba(15,23,42,.14);
+  box-shadow:0 10px 22px rgba(15,23,42,.12);
   z-index:4;
   right:calc(100% + 12px);
 }
 .cbx-index-widget{
   display:flex;
-  align-items:center;
-  gap:10px;
+  align-items:stretch;
+  gap:8px;
 }
 .cbx-index-card{
   flex:1;
-  border:1px solid #e2e8f0;
-  border-radius:14px;
-  padding:10px 12px;
-  background:#f8fafc;
+  min-height:132px;
+  border:var(--cbx-stroke) solid #e2e8f0;
+  border-radius:16px;
+  padding:12px 14px;
+  background:#f5f5f5;
   cursor:pointer;
+  opacity:0;
+  transform:translateX(6px);
+  transition:opacity .14s ease, transform .14s ease;
+  pointer-events:none;
+}
+.cbx-index-card-visible{
+  opacity:1;
+  transform:translateX(0);
+  pointer-events:auto;
 }
 .cbx-index-card-empty{
   cursor:default;
-  opacity:.86;
 }
 .cbx-index-title{
   font-size:12px;
@@ -819,12 +852,12 @@ const styles = `
 }
 .cbx-index-meta{
   font-size:11px;
-  color:#64748b;
+  color:var(--cbx-muted);
   margin-bottom:7px;
 }
 .cbx-index-preview{
-  font-size:13px;
-  color:#0f172a;
+  font-size:14px;
+  color:var(--cbx-text);
   line-height:1.45;
   display:-webkit-box;
   -webkit-line-clamp:2;
@@ -834,36 +867,56 @@ const styles = `
 }
 .cbx-index-hint{
   font-size:11px;
-  color:#64748b;
+  color:var(--cbx-muted);
   margin-top:7px;
 }
 .cbx-index-nav{
-  width:56px;
+  width:28px;
+  min-height:132px;
   display:flex;
   flex-direction:column;
   align-items:center;
-  gap:8px;
+  justify-content:space-between;
+  gap:6px;
 }
 .cbx-index-btn{
-  width:34px;
-  height:34px;
-  border:1px solid #cbd5e1;
-  border-radius:10px;
-  background:#fff;
-  color:#1e293b;
-  font-size:17px;
+  width:24px;
+  height:24px;
+  border:none;
+  background:transparent;
+  color:#666;
+  font-size:16px;
   font-weight:700;
   cursor:pointer;
 }
 .cbx-index-btn:disabled{
-  opacity:.38;
+  opacity:.3;
   cursor:default;
 }
+.cbx-index-lines{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+.cbx-index-line{
+  width:12px;
+  height:2px;
+  border-radius:2px;
+  border:none;
+  background:#bbb;
+  padding:0;
+  cursor:pointer;
+}
+.cbx-index-line-active{
+  width:20px;
+  background:#444;
+}
 .cbx-index-pos{
-  min-width:56px;
+  min-width:28px;
   text-align:center;
-  font-size:11px;
-  color:#64748b;
+  font-size:10px;
+  color:var(--cbx-muted);
+  padding-top:2px;
 }
 .cbx-hidden{ display:none; }
 `;
