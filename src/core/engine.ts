@@ -5,7 +5,7 @@ import { Scheduler } from "./scheduler";
 import { SafetyGuard } from "./safety";
 import { buildOrUpdateModels, createEmptyThread } from "./model";
 import { getDistanceInScreens, getViewportInfo } from "./viewport";
-import type { EngineConfig, MessageModel, RenderMode, ThreadState } from "../shared/types";
+import type { EngineConfig, EngineStats, MessageModel, RenderMode, ThreadState } from "../shared/types";
 
 export class OptimizationEngine {
   private readonly scheduler = new Scheduler();
@@ -51,6 +51,26 @@ export class OptimizationEngine {
       msg.flags.isPinned = false;
       applyRenderMode(msg, "full");
     }
+  }
+
+  getStats(): EngineStats {
+    const stats: EngineStats = {
+      total: this.thread.messages.length,
+      full: 0,
+      collapsed: 0,
+      placeholder: 0,
+      heavy: 0,
+      streaming: 0
+    };
+
+    for (const msg of this.thread.messages) {
+      if (msg.renderMode === "full") stats.full += 1;
+      if (msg.renderMode === "collapsed") stats.collapsed += 1;
+      if (msg.renderMode === "placeholder") stats.placeholder += 1;
+      if (msg.flags.isHeavy) stats.heavy += 1;
+      if (msg.flags.isStreaming) stats.streaming += 1;
+    }
+    return stats;
   }
 
   private scheduleRefresh(): void {

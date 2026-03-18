@@ -46,3 +46,12 @@ export interface ViewportInfo {
   bottom: number;
   height: number;
 }
+
+export interface EngineStats {
+  total: number;
+  full: number;
+  collapsed: number;
+  placeholder: number;
+  heavy: number;
+  streaming: number;
+}
