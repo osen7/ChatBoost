@@ -15,6 +15,7 @@ export interface MessageFlags {
   isTemporarilyRevealed: boolean;
   isHeavy: boolean;
   isInteractive: boolean;
+  codeBlockCount: number;
 }
 
 export interface MessageModel {

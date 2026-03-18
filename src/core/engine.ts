@@ -358,7 +358,8 @@ export class OptimizationEngine {
       longTaskCount5s: this.getLongTaskCount5s(),
       lastUpdateMs: this.lastUpdateMs,
       domNodeCount: this.domNodeCount,
-      dehydratedCount: this.dehydratedCount
+      dehydratedCount: this.dehydratedCount,
+      preCount: this.preCount
     });
   }
 
@@ -402,6 +403,9 @@ function getOptimizationReason(
   if (msg.flags.isHeavy) {
     reasons.push("消息较重");
   }
+  if (msg.flags.codeBlockCount > 0) {
+    reasons.push("含代码块");
+  }
   if (cfg.enablePlaceholder && distanceScreens > cfg.collapseBufferScreens) {
     reasons.push("当前模式允许占位");
   }
@@ -436,6 +440,11 @@ export function decideRenderMode(
   }
 
   let distanceScreens = getDistanceInScreens(msg.metrics, viewport);
+  if (msg.flags.codeBlockCount >= 2) {
+    distanceScreens += 1.0;
+  } else if (msg.flags.codeBlockCount === 1) {
+    distanceScreens += 0.6;
+  }
   if (opts && opts.speedPxPerSec >= 1200) {
     const position = getMessagePosition(msg, viewport);
     if (opts.direction === "up") {
@@ -483,12 +492,14 @@ function decidePressureLevel(input: {
   lastUpdateMs: number;
   domNodeCount: number;
   dehydratedCount: number;
+  preCount: number;
 }): PressureLevel {
   if (
     input.longTaskCount5s >= 3 ||
     input.lastUpdateMs >= 22 ||
     input.domNodeCount >= 7000 ||
-    input.dehydratedCount >= 120
+    input.dehydratedCount >= 120 ||
+    input.preCount >= 90
   ) {
     return "high";
   }
@@ -496,7 +507,8 @@ function decidePressureLevel(input: {
     input.longTaskCount5s >= 1 ||
     input.lastUpdateMs >= 12 ||
     input.domNodeCount >= 3500 ||
-    input.dehydratedCount >= 40
+    input.dehydratedCount >= 40 ||
+    input.preCount >= 40
   ) {
     return "medium";
   }
