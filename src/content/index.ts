@@ -36,8 +36,8 @@ function sanitizeMode(value: unknown): PerformanceMode {
 }
 
 function sanitizePlacement(value: unknown): PanelPlacement {
-  if (value === "auto" || value === "left" || value === "right") {
+  if (value === "right") {
     return value;
   }
-  return "auto";
+  return "right";
 }

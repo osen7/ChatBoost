@@ -11,7 +11,7 @@ let engine: OptimizationEngine | null = null;
 let enabledState = true;
 let pausedState = false;
 let modeState: PerformanceMode = defaultMode;
-let placementState: PanelPlacement = "auto";
+let placementState: PanelPlacement = "right";
 let statsTimer: number | null = null;
 let urlWatchTimer: number | null = null;
 let conversationChangeTimer: number | null = null;
@@ -30,9 +30,6 @@ export function bootstrap(): void {
     },
     onCycleMode() {
       setMode(nextMode(modeState));
-    },
-    onCyclePlacement() {
-      setPlacement(nextPlacement(placementState));
     },
     onRestoreAll() {
       engine?.restoreAll();
@@ -295,13 +292,6 @@ function modeToHint(mode: PerformanceMode): string {
 }
 
 function placementToLabel(placement: PanelPlacement): string {
-  if (placement === "left") return "Left";
-  if (placement === "right") return "Right";
-  return "Auto";
-}
-
-function nextPlacement(placement: PanelPlacement): PanelPlacement {
-  if (placement === "auto") return "right";
-  if (placement === "right") return "left";
-  return "auto";
+  if (placement === "right") return "右侧";
+  return "右侧";
 }

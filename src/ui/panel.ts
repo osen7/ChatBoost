@@ -5,7 +5,6 @@ interface PanelHandlers {
   onToggleEnabled(nextEnabled: boolean): void;
   onTogglePause(nextPaused: boolean): void;
   onCycleMode(): void;
-  onCyclePlacement(): void;
   onRestoreAll(): void;
 }
 
@@ -26,7 +25,6 @@ type Action =
   | "toggle-pause"
   | "restore"
   | "mode"
-  | "placement"
   | "status"
   | "hide";
 
@@ -40,7 +38,6 @@ let clusterEl: HTMLDivElement | null = null;
 let toolbarEl: HTMLDivElement | null = null;
 let tooltipEl: HTMLDivElement | null = null;
 let detailEl: HTMLDivElement | null = null;
-let autoPlaced = true;
 let appliedPlacement: PanelPlacement | null = null;
 let hidden = false;
 let closeTimer: number | null = null;
@@ -84,13 +81,6 @@ const modeIcon = `
   <path d="M12 3a9 9 0 0 1 0 18"></path>
 </svg>`;
 
-const placementIcon = `
-<svg viewBox="0 0 24 24" aria-hidden="true">
-  <path d="M8 7 4 12l4 5"></path>
-  <path d="M16 7l4 5-4 5"></path>
-  <path d="M5 12h14"></path>
-</svg>`;
-
 const statusIcon = `
 <svg viewBox="0 0 24 24" aria-hidden="true">
   <path d="M12 8v4"></path>
@@ -109,7 +99,6 @@ const TOOL_ACTIONS: Array<{ action: Action; icon: string }> = [
   { action: "toggle-pause", icon: pauseIcon },
   { action: "restore", icon: restoreIcon },
   { action: "mode", icon: modeIcon },
-  { action: "placement", icon: placementIcon },
   { action: "status", icon: statusIcon },
   { action: "hide", icon: closeIcon }
 ];
@@ -117,7 +106,6 @@ const TOOL_ACTIONS: Array<{ action: Action; icon: string }> = [
 export function mountPanel(initialState: PanelState, handlers: PanelHandlers): void {
   handlersRef = handlers;
   state = initialState;
-  autoPlaced = true;
   appliedPlacement = null;
 
   if (host?.isConnected) {
@@ -135,7 +123,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `
     <style>${styles}</style>
-    <div class="cbx-cluster" data-side="right">
+    <div class="cbx-cluster">
       <div class="cbx-track" aria-hidden="true"></div>
       <button class="cbx-anchor" type="button" aria-label="ThreadSprint">
         <span class="cbx-anchor-icon" aria-hidden="true">${lightningIcon}</span>
@@ -236,9 +224,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     if (!hidden) {
       setToolbarVisible(true);
       scheduleClose();
-      if (state?.placement === "auto") {
-        applySmartPlacement(hostEl);
-      }
+      applySmartPlacement(hostEl);
     }
   };
   document.addEventListener("keydown", keyHandler, true);
@@ -283,7 +269,6 @@ function renderState(): void {
     label.textContent = state.enabled ? "ON" : "OFF";
   }
   anchorEl.classList.toggle("cbx-anchor-off", !state.enabled);
-  clusterEl.dataset.side = detectSide();
 
   updateToolLabels();
   renderTooltip();
@@ -394,10 +379,6 @@ function runAction(action: Action): void {
     handlersRef?.onCycleMode();
     return;
   }
-  if (action === "placement") {
-    handlersRef?.onCyclePlacement();
-    return;
-  }
   if (action === "status") {
     statusOpen = !statusOpen;
     setDetailVisible(statusOpen);
@@ -430,7 +411,6 @@ function getActionLabel(action: Action, s: PanelState): string {
   if (action === "toggle-pause") return s.paused ? "恢复本页优化" : "暂停本页优化";
   if (action === "restore") return "恢复全部消息";
   if (action === "mode") return `模式：${s.modeLabel}`;
-  if (action === "placement") return `位置：${s.placementLabel}`;
   if (action === "status") return "查看状态";
   return "隐藏控件";
 }
@@ -442,15 +422,13 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, c
   const onMouseDown = (event: MouseEvent) => {
     dragActive = true;
     dragMoved = false;
-    autoPlaced = false;
     startX = event.clientX;
     startY = event.clientY;
     const rect = hostEl.getBoundingClientRect();
-    dragOffsetX = event.clientX - rect.left;
+    dragOffsetX = event.clientX - rect.right;
     dragOffsetY = event.clientY - rect.top;
-    hostEl.style.left = `${rect.left}px`;
+    hostEl.style.right = `${Math.max(window.innerWidth - rect.right, 10)}px`;
     hostEl.style.top = `${rect.top}px`;
-    hostEl.style.right = "auto";
     hostEl.style.bottom = "auto";
     event.preventDefault();
   };
@@ -466,14 +444,10 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, c
     if (!dragMoved) {
       return;
     }
-    const maxLeft = Math.max(window.innerWidth - hostEl.offsetWidth - 6, 0);
     const maxTop = Math.max(window.innerHeight - hostEl.offsetHeight - 6, 0);
-    const left = clamp(event.clientX - dragOffsetX, 6, maxLeft);
     const top = clamp(event.clientY - dragOffsetY, 6, maxTop);
-    hostEl.style.left = `${left}px`;
+    hostEl.style.right = "10px";
     hostEl.style.top = `${top}px`;
-    const side = left + hostEl.offsetWidth / 2 < window.innerWidth / 2 ? "left" : "right";
-    cluster.dataset.side = side;
   };
 
   const onMouseUp = () => {
@@ -482,7 +456,7 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, c
     }
     dragActive = false;
     if (dragMoved) {
-      snapToEdge(hostEl, cluster);
+      snapToEdge(hostEl);
     }
   };
 
@@ -499,9 +473,6 @@ function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, c
 
 function installAutoAvoidance(hostEl: HTMLDivElement): () => void {
   const apply = () => {
-    if (!autoPlaced || !state || state.placement !== "auto") {
-      return;
-    }
     applySmartPlacement(hostEl);
   };
   const throttledApply = throttle(apply, 160);
@@ -517,72 +488,44 @@ function installAutoAvoidance(hostEl: HTMLDivElement): () => void {
 }
 
 function applyPlacementByMode(placement: PanelPlacement): void {
-  if (!host || !clusterEl) {
+  if (!host) {
     return;
   }
-  if (placement === "auto") {
-    autoPlaced = true;
-    applySmartPlacement(host);
-    return;
-  }
-  autoPlaced = false;
   const width = Math.max(host.offsetWidth, 64);
   const sideGap = 14;
-  const left = placement === "left" ? sideGap : Math.max(window.innerWidth - width - sideGap, 6);
+  const left = Math.max(window.innerWidth - width - sideGap, 6);
   const top = Math.max(window.innerHeight - Math.max(host.offsetHeight, 40) - 22, 6);
   host.style.left = `${Math.round(left)}px`;
   host.style.top = `${Math.round(top)}px`;
   host.style.right = "auto";
   host.style.bottom = "auto";
-  clusterEl.dataset.side = placement;
 }
 
 function applySmartPlacement(hostEl: HTMLDivElement): void {
-  if (!clusterEl) {
-    return;
-  }
   const sideGap = 12;
   const candidatesBottom = [26, 96, 166, 236];
   const width = Math.max(hostEl.offsetWidth, 64);
   const height = Math.max(hostEl.offsetHeight, 40);
 
-  for (const side of ["right", "left"] as const) {
-    for (const bottom of candidatesBottom) {
-      const left = side === "right" ? window.innerWidth - sideGap - width : sideGap;
-      const top = Math.max(window.innerHeight - bottom - height, 6);
-      if (isOccupied(left + width / 2, top + height / 2, hostEl)) {
-        continue;
-      }
-      hostEl.style.left = `${Math.round(left)}px`;
-      hostEl.style.top = `${Math.round(top)}px`;
-      hostEl.style.right = "auto";
-      hostEl.style.bottom = "auto";
-      clusterEl.dataset.side = side;
-      return;
+  for (const bottom of candidatesBottom) {
+    const left = window.innerWidth - sideGap - width;
+    const top = Math.max(window.innerHeight - bottom - height, 6);
+    if (isOccupied(left + width / 2, top + height / 2, hostEl)) {
+      continue;
     }
-  }
-}
-
-function detectSide(): "left" | "right" {
-  if (!host) {
-    return "right";
-  }
-  const rect = host.getBoundingClientRect();
-  return rect.left + rect.width / 2 < window.innerWidth / 2 ? "left" : "right";
-}
-
-function snapToEdge(hostEl: HTMLDivElement, cluster: HTMLDivElement): void {
-  const rect = hostEl.getBoundingClientRect();
-  const toLeft = rect.left + rect.width / 2 < window.innerWidth / 2;
-  const top = clamp(rect.top, 6, Math.max(window.innerHeight - rect.height - 6, 6));
-  hostEl.style.top = `${top}px`;
-  if (toLeft) {
-    hostEl.style.left = "10px";
-    cluster.dataset.side = "left";
+    hostEl.style.left = `${Math.round(left)}px`;
+    hostEl.style.top = `${Math.round(top)}px`;
+    hostEl.style.right = "auto";
+    hostEl.style.bottom = "auto";
     return;
   }
+}
+
+function snapToEdge(hostEl: HTMLDivElement): void {
+  const rect = hostEl.getBoundingClientRect();
+  const top = clamp(rect.top, 6, Math.max(window.innerHeight - rect.height - 6, 6));
+  hostEl.style.top = `${top}px`;
   hostEl.style.left = `${Math.max(window.innerWidth - rect.width - 10, 6)}px`;
-  cluster.dataset.side = "right";
 }
 
 function isOccupied(x: number, y: number, hostEl: HTMLElement): boolean {
@@ -691,12 +634,7 @@ const styles = `
   transform:translateY(-50%);
   pointer-events:auto;
 }
-.cbx-cluster[data-side="right"] .cbx-toolbar{
-  right:calc(100% + 10px);
-}
-.cbx-cluster[data-side="left"] .cbx-toolbar{
-  left:calc(100% + 10px);
-}
+.cbx-toolbar{ right:calc(100% + 10px); }
 .cbx-tool{
   display:grid;
   place-items:center;
@@ -730,12 +668,7 @@ const styles = `
   z-index:4;
   box-shadow:0 8px 20px rgba(15,23,42,.12);
 }
-.cbx-cluster[data-side="right"] .cbx-tooltip{
-  right:calc(100% + 46px);
-}
-.cbx-cluster[data-side="left"] .cbx-tooltip{
-  left:calc(100% + 46px);
-}
+.cbx-tooltip{ right:calc(100% + 46px); }
 .cbx-detail{
   position:absolute;
   top:38px;
@@ -748,12 +681,7 @@ const styles = `
   box-shadow:0 10px 24px rgba(15,23,42,.14);
   z-index:4;
 }
-.cbx-cluster[data-side="right"] .cbx-detail{
-  right:0;
-}
-.cbx-cluster[data-side="left"] .cbx-detail{
-  left:0;
-}
+.cbx-detail{ right:0; }
 .cbx-detail-title{
   font-size:12px;
   font-weight:700;
