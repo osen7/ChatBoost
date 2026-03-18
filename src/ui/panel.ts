@@ -21,26 +21,49 @@ export interface PanelState {
   totalCount: number;
 }
 
+type Action =
+  | "toggle-enabled"
+  | "toggle-pause"
+  | "restore"
+  | "mode"
+  | "placement"
+  | "status"
+  | "hide";
+
 let host: HTMLDivElement | null = null;
 let state: PanelState | null = null;
 let handlersRef: PanelHandlers | null = null;
 let cleanupFns: Array<() => void> = [];
 
-let fabBtn: HTMLButtonElement | null = null;
-let panelEl: HTMLDivElement | null = null;
-let enableBtn: HTMLButtonElement | null = null;
-let pauseBtn: HTMLButtonElement | null = null;
-let restoreBtn: HTMLButtonElement | null = null;
-let hideBtn: HTMLButtonElement | null = null;
-let statusEl: HTMLDivElement | null = null;
-let hintEl: HTMLDivElement | null = null;
-let statsEl: HTMLDivElement | null = null;
-let modeBtn: HTMLButtonElement | null = null;
-let placementBtn: HTMLButtonElement | null = null;
+let anchorEl: HTMLButtonElement | null = null;
+let clusterEl: HTMLDivElement | null = null;
+let toolbarEl: HTMLDivElement | null = null;
+let tooltipEl: HTMLDivElement | null = null;
+let detailEl: HTMLDivElement | null = null;
 let autoPlaced = true;
 let appliedPlacement: PanelPlacement | null = null;
+let hidden = false;
+let closeTimer: number | null = null;
+let hoverAction: Action | null = null;
+let statusOpen = false;
+let dragActive = false;
+let dragMoved = false;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
+const DRAG_THRESHOLD = 6;
+const COLLAPSE_DELAY_MS = 160;
+
+const TOOL_ACTIONS: Array<{ action: Action; icon: string }> = [
+  { action: "toggle-enabled", icon: "⏻" },
+  { action: "toggle-pause", icon: "⏸" },
+  { action: "restore", icon: "⟳" },
+  { action: "mode", icon: "◐" },
+  { action: "placement", icon: "⇆" },
+  { action: "status", icon: "◎" },
+  { action: "hide", icon: "✕" }
+];
 
 export function mountPanel(initialState: PanelState, handlers: PanelHandlers): void {
   handlersRef = handlers;
@@ -59,98 +82,91 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   host.style.right = "14px";
   host.style.bottom = "22px";
   host.style.zIndex = "2147483647";
-  host.style.pointerEvents = "none";
 
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `
     <style>${styles}</style>
-    <div class="cbx-root" part="root">
-      <button class="cbx-fab" part="fab" type="button">⚡ TS</button>
-      <div class="cbx-panel cbx-hidden" part="panel">
-        <div class="cbx-header" part="header">
-          <span class="cbx-title">ThreadSprint</span>
-          <button class="cbx-icon-btn" data-cbx-action="collapse" type="button" aria-label="Collapse">×</button>
-        </div>
-        <div class="cbx-status" part="status"></div>
-        <div class="cbx-hint"></div>
-        <div class="cbx-row">
-          <button class="cbx-btn" data-cbx-action="mode" type="button"></button>
-          <button class="cbx-btn" data-cbx-action="placement" type="button"></button>
-        </div>
-        <div class="cbx-row">
-          <button class="cbx-btn" data-cbx-action="toggle-enabled" type="button"></button>
-          <button class="cbx-btn" data-cbx-action="toggle-pause" type="button"></button>
-        </div>
-        <div class="cbx-row">
-          <button class="cbx-btn" data-cbx-action="restore" type="button">Restore All</button>
-          <button class="cbx-btn" data-cbx-action="hide" type="button">Hide</button>
-        </div>
-        <div class="cbx-stats" part="stats"></div>
-        <div class="cbx-help">快捷键: Ctrl + Shift + S</div>
-      </div>
+    <div class="cbx-cluster" data-side="right">
+      <div class="cbx-track" aria-hidden="true"></div>
+      <button class="cbx-anchor" type="button" aria-label="ThreadSprint">⚡</button>
+      <div class="cbx-toolbar cbx-hidden"></div>
+      <div class="cbx-tooltip cbx-hidden"></div>
+      <div class="cbx-detail cbx-hidden"></div>
     </div>
   `;
 
-  fabBtn = shadow.querySelector(".cbx-fab");
-  panelEl = shadow.querySelector(".cbx-panel");
-  enableBtn = shadow.querySelector("[data-cbx-action='toggle-enabled']");
-  pauseBtn = shadow.querySelector("[data-cbx-action='toggle-pause']");
-  modeBtn = shadow.querySelector("[data-cbx-action='mode']");
-  placementBtn = shadow.querySelector("[data-cbx-action='placement']");
-  restoreBtn = shadow.querySelector("[data-cbx-action='restore']");
-  hideBtn = shadow.querySelector("[data-cbx-action='hide']");
-  statusEl = shadow.querySelector(".cbx-status");
-  hintEl = shadow.querySelector(".cbx-hint");
-  statsEl = shadow.querySelector(".cbx-stats");
+  anchorEl = shadow.querySelector(".cbx-anchor");
+  clusterEl = shadow.querySelector(".cbx-cluster");
+  toolbarEl = shadow.querySelector(".cbx-toolbar");
+  tooltipEl = shadow.querySelector(".cbx-tooltip");
+  detailEl = shadow.querySelector(".cbx-detail");
+
+  if (!anchorEl || !clusterEl || !toolbarEl || !tooltipEl || !detailEl) {
+    return;
+  }
+
+  toolbarEl.replaceChildren(...TOOL_ACTIONS.map((item) => createToolButton(item.action, item.icon)));
+
+  const onMouseEnter = () => {
+    clearCloseTimer();
+    if (!hidden) {
+      setToolbarVisible(true);
+    }
+  };
+  const onMouseLeave = () => {
+    scheduleClose();
+  };
+  clusterEl.addEventListener("mouseenter", onMouseEnter);
+  clusterEl.addEventListener("mouseleave", onMouseLeave);
+  cleanupFns.push(() => {
+    clusterEl?.removeEventListener("mouseenter", onMouseEnter);
+    clusterEl?.removeEventListener("mouseleave", onMouseLeave);
+  });
 
   const clickHandler = (event: Event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
       return;
     }
-    const action = target.getAttribute("data-cbx-action");
+    if (dragMoved) {
+      dragMoved = false;
+      return;
+    }
+
+    if (target.classList.contains("cbx-anchor")) {
+      statusOpen = !statusOpen;
+      setDetailVisible(statusOpen);
+      renderState();
+      return;
+    }
+
+    const action = target.getAttribute("data-cbx-action") as Action | null;
     if (!action) {
-      if (target.classList.contains("cbx-fab")) {
-        toggleExpanded();
-      }
       return;
     }
-
-    if (action === "collapse") {
-      setExpanded(false);
-      return;
-    }
-    if (action === "toggle-enabled") {
-      handlersRef?.onToggleEnabled(!(state?.enabled ?? true));
-      return;
-    }
-    if (action === "mode") {
-      handlersRef?.onCycleMode();
-      return;
-    }
-    if (action === "placement") {
-      handlersRef?.onCyclePlacement();
-      return;
-    }
-    if (action === "toggle-pause") {
-      handlersRef?.onTogglePause(!(state?.paused ?? false));
-      return;
-    }
-    if (action === "restore") {
-      handlersRef?.onRestoreAll();
-      return;
-    }
-    if (action === "hide") {
-      setVisible(false);
-    }
+    runAction(action);
   };
-
   shadow.addEventListener("click", clickHandler);
   cleanupFns.push(() => shadow.removeEventListener("click", clickHandler));
 
-  const dragCleanup = installDragAndSnap(host, shadow);
+  const moveHandler = (event: Event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      hoverAction = null;
+      renderTooltip();
+      return;
+    }
+    const action = target.getAttribute("data-cbx-action") as Action | null;
+    hoverAction = action;
+    renderTooltip();
+  };
+  shadow.addEventListener("mouseover", moveHandler);
+  cleanupFns.push(() => shadow.removeEventListener("mouseover", moveHandler));
+
+  const hostEl = host;
+  const dragCleanup = installDragAndSnap(hostEl, anchorEl, clusterEl);
   cleanupFns.push(dragCleanup);
-  const avoidCleanup = installAutoAvoidance(host);
+  const avoidCleanup = installAutoAvoidance(hostEl);
   cleanupFns.push(avoidCleanup);
 
   const keyHandler = (event: KeyboardEvent) => {
@@ -161,40 +177,41 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
       return;
     }
     event.preventDefault();
-    const hidden = host?.style.display === "none";
-    setVisible(hidden);
-    if (hidden && host) {
-      applySmartPlacement(host);
+    hidden = !hidden;
+    hostEl.style.display = hidden ? "none" : "block";
+    if (!hidden) {
+      setToolbarVisible(true);
+      scheduleClose();
+      if (state?.placement === "auto") {
+        applySmartPlacement(hostEl);
+      }
     }
   };
   document.addEventListener("keydown", keyHandler, true);
   cleanupFns.push(() => document.removeEventListener("keydown", keyHandler, true));
 
-  document.body.appendChild(host);
+  document.body.appendChild(hostEl);
   renderState();
 }
 
 export function unmountPanel(): void {
+  clearCloseTimer();
   for (const cleanup of cleanupFns) {
     cleanup();
   }
   cleanupFns = [];
   host?.remove();
   host = null;
-  fabBtn = null;
-  panelEl = null;
-  enableBtn = null;
-  pauseBtn = null;
-  modeBtn = null;
-  placementBtn = null;
-  restoreBtn = null;
-  hideBtn = null;
-  statusEl = null;
-  hintEl = null;
-  statsEl = null;
+  anchorEl = null;
+  clusterEl = null;
+  toolbarEl = null;
+  tooltipEl = null;
+  detailEl = null;
   state = null;
   handlersRef = null;
   appliedPlacement = null;
+  hoverAction = null;
+  statusOpen = false;
 }
 
 export function updatePanelState(nextState: PanelState): void {
@@ -203,35 +220,17 @@ export function updatePanelState(nextState: PanelState): void {
 }
 
 function renderState(): void {
-  if (
-    !state ||
-    !fabBtn ||
-    !enableBtn ||
-    !pauseBtn ||
-    !statusEl ||
-    !hintEl ||
-    !statsEl ||
-    !modeBtn ||
-    !placementBtn
-  ) {
+  if (!state || !anchorEl || !clusterEl || !toolbarEl || !detailEl) {
     return;
   }
 
-  fabBtn.textContent = `⚡ ${state.enabled ? "ON" : "OFF"}`;
-  enableBtn.textContent = state.enabled ? "Disable Boost" : "Enable Boost";
-  pauseBtn.textContent = state.paused ? "Resume Page" : "Pause Page";
-  pauseBtn.disabled = !state.enabled;
-  modeBtn.textContent = `Mode: ${state.modeLabel}`;
-  modeBtn.disabled = state.paused;
-  placementBtn.textContent = `Place: ${state.placementLabel}`;
+  anchorEl.textContent = state.enabled ? "⚡ ON" : "⚡ OFF";
+  anchorEl.classList.toggle("cbx-anchor-off", !state.enabled);
+  clusterEl.dataset.side = detectSide();
 
-  statusEl.textContent = `Mode: ${state.modeLabel}`;
-  hintEl.textContent = state.modeHint;
-  statsEl.textContent = [
-    `Total: ${state.totalCount}`,
-    `Collapsed: ${state.collapsedCount}`,
-    `Placeholder: ${state.placeholderCount}`
-  ].join("  |  ");
+  updateToolLabels();
+  renderTooltip();
+  renderDetail();
 
   if (appliedPlacement !== state.placement) {
     applyPlacementByMode(state.placement);
@@ -239,76 +238,198 @@ function renderState(): void {
   }
 }
 
-function toggleExpanded(): void {
-  if (!panelEl) {
+function updateToolLabels(): void {
+  if (!toolbarEl || !state) {
     return;
   }
-  setExpanded(panelEl.classList.contains("cbx-hidden"));
+  const buttons = toolbarEl.querySelectorAll<HTMLButtonElement>(".cbx-tool");
+  for (const btn of buttons) {
+    const action = btn.dataset.cbxAction as Action | undefined;
+    if (!action) {
+      continue;
+    }
+    btn.setAttribute("aria-label", getActionLabel(action, state));
+  }
 }
 
-function setExpanded(expanded: boolean): void {
-  if (!panelEl) {
+function renderTooltip(): void {
+  if (!tooltipEl || !state || !hoverAction) {
+    if (tooltipEl) {
+      tooltipEl.classList.add("cbx-hidden");
+    }
     return;
   }
-  panelEl.classList.toggle("cbx-hidden", !expanded);
+  tooltipEl.textContent = getActionLabel(hoverAction, state);
+  tooltipEl.classList.remove("cbx-hidden");
 }
 
-function setVisible(visible: boolean): void {
-  if (!host) {
+function renderDetail(): void {
+  if (!detailEl || !state) {
     return;
   }
-  host.style.display = visible ? "block" : "none";
+  detailEl.innerHTML = `
+    <div class="cbx-detail-title">Status</div>
+    <div class="cbx-detail-row">Mode: <b>${state.modeLabel}</b></div>
+    <div class="cbx-detail-row">${state.modeHint}</div>
+    <div class="cbx-detail-row">Placement: <b>${state.placementLabel}</b></div>
+    <div class="cbx-detail-row">Total: ${state.totalCount}</div>
+    <div class="cbx-detail-row">Collapsed: ${state.collapsedCount}</div>
+    <div class="cbx-detail-row">Placeholder: ${state.placeholderCount}</div>
+  `;
+  setDetailVisible(statusOpen);
 }
 
-function installDragAndSnap(hostEl: HTMLDivElement, shadow: ShadowRoot): () => void {
-  const header = shadow.querySelector(".cbx-header");
-  if (!(header instanceof HTMLElement)) {
-    return () => undefined;
+function setToolbarVisible(visible: boolean): void {
+  if (!toolbarEl) {
+    return;
   }
+  toolbarEl.classList.toggle("cbx-hidden", !visible);
+  if (!visible) {
+    hoverAction = null;
+    renderTooltip();
+  }
+}
 
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
+function setDetailVisible(visible: boolean): void {
+  if (!detailEl) {
+    return;
+  }
+  detailEl.classList.toggle("cbx-hidden", !visible);
+}
+
+function scheduleClose(): void {
+  clearCloseTimer();
+  closeTimer = window.setTimeout(() => {
+    if (dragActive) {
+      return;
+    }
+    setToolbarVisible(false);
+    statusOpen = false;
+    setDetailVisible(false);
+  }, COLLAPSE_DELAY_MS);
+}
+
+function clearCloseTimer(): void {
+  if (closeTimer === null) {
+    return;
+  }
+  window.clearTimeout(closeTimer);
+  closeTimer = null;
+}
+
+function runAction(action: Action): void {
+  if (!state) {
+    return;
+  }
+  if (action === "toggle-enabled") {
+    handlersRef?.onToggleEnabled(!state.enabled);
+    return;
+  }
+  if (action === "toggle-pause") {
+    handlersRef?.onTogglePause(!state.paused);
+    return;
+  }
+  if (action === "restore") {
+    handlersRef?.onRestoreAll();
+    return;
+  }
+  if (action === "mode") {
+    handlersRef?.onCycleMode();
+    return;
+  }
+  if (action === "placement") {
+    handlersRef?.onCyclePlacement();
+    return;
+  }
+  if (action === "status") {
+    statusOpen = !statusOpen;
+    setDetailVisible(statusOpen);
+    renderState();
+    return;
+  }
+  if (action === "hide" && host) {
+    hidden = true;
+    host.style.display = "none";
+  }
+}
+
+function createToolButton(action: Action, icon: string): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "cbx-tool";
+  btn.dataset.cbxAction = action;
+  btn.setAttribute("data-cbx-action", action);
+  btn.textContent = icon;
+  return btn;
+}
+
+function getActionLabel(action: Action, s: PanelState): string {
+  if (action === "toggle-enabled") return s.enabled ? "Disable boost" : "Enable boost";
+  if (action === "toggle-pause") return s.paused ? "Resume page" : "Pause this page";
+  if (action === "restore") return "Restore all messages";
+  if (action === "mode") return `Mode: ${s.modeLabel}`;
+  if (action === "placement") return `Place: ${s.placementLabel}`;
+  if (action === "status") return "Open status";
+  return "Hide widget";
+}
+
+function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement, cluster: HTMLDivElement): () => void {
+  let startX = 0;
+  let startY = 0;
 
   const onMouseDown = (event: MouseEvent) => {
+    dragActive = true;
+    dragMoved = false;
     autoPlaced = false;
-    dragging = true;
+    startX = event.clientX;
+    startY = event.clientY;
     const rect = hostEl.getBoundingClientRect();
+    dragOffsetX = event.clientX - rect.left;
+    dragOffsetY = event.clientY - rect.top;
     hostEl.style.left = `${rect.left}px`;
     hostEl.style.top = `${rect.top}px`;
     hostEl.style.right = "auto";
     hostEl.style.bottom = "auto";
-    offsetX = event.clientX - rect.left;
-    offsetY = event.clientY - rect.top;
     event.preventDefault();
   };
 
   const onMouseMove = (event: MouseEvent) => {
-    if (!dragging) {
+    if (!dragActive) {
+      return;
+    }
+    const moved = Math.hypot(event.clientX - startX, event.clientY - startY);
+    if (moved > DRAG_THRESHOLD) {
+      dragMoved = true;
+    }
+    if (!dragMoved) {
       return;
     }
     const maxLeft = Math.max(window.innerWidth - hostEl.offsetWidth - 6, 0);
     const maxTop = Math.max(window.innerHeight - hostEl.offsetHeight - 6, 0);
-    const left = clamp(event.clientX - offsetX, 6, maxLeft);
-    const top = clamp(event.clientY - offsetY, 6, maxTop);
+    const left = clamp(event.clientX - dragOffsetX, 6, maxLeft);
+    const top = clamp(event.clientY - dragOffsetY, 6, maxTop);
     hostEl.style.left = `${left}px`;
     hostEl.style.top = `${top}px`;
+    const side = left + hostEl.offsetWidth / 2 < window.innerWidth / 2 ? "left" : "right";
+    cluster.dataset.side = side;
   };
 
   const onMouseUp = () => {
-    if (!dragging) {
+    if (!dragActive) {
       return;
     }
-    dragging = false;
-    snapToEdge(hostEl);
+    dragActive = false;
+    if (dragMoved) {
+      snapToEdge(hostEl, cluster);
+    }
   };
 
-  header.addEventListener("mousedown", onMouseDown);
+  anchor.addEventListener("mousedown", onMouseDown);
   document.addEventListener("mousemove", onMouseMove, true);
   document.addEventListener("mouseup", onMouseUp, true);
 
   return () => {
-    header.removeEventListener("mousedown", onMouseDown);
+    anchor.removeEventListener("mousedown", onMouseDown);
     document.removeEventListener("mousemove", onMouseMove, true);
     document.removeEventListener("mouseup", onMouseUp, true);
   };
@@ -316,16 +437,17 @@ function installDragAndSnap(hostEl: HTMLDivElement, shadow: ShadowRoot): () => v
 
 function installAutoAvoidance(hostEl: HTMLDivElement): () => void {
   const apply = () => {
-    if (!autoPlaced) {
+    if (!autoPlaced || !state || state.placement !== "auto") {
       return;
     }
     applySmartPlacement(hostEl);
   };
-  const throttledApply = throttle(apply, 150);
+  const throttledApply = throttle(apply, 160);
 
   window.addEventListener("resize", throttledApply, true);
   window.addEventListener("scroll", throttledApply, true);
-  window.setTimeout(apply, 80);
+  window.setTimeout(apply, 90);
+
   return () => {
     window.removeEventListener("resize", throttledApply, true);
     window.removeEventListener("scroll", throttledApply, true);
@@ -333,7 +455,7 @@ function installAutoAvoidance(hostEl: HTMLDivElement): () => void {
 }
 
 function applyPlacementByMode(placement: PanelPlacement): void {
-  if (!host) {
+  if (!host || !clusterEl) {
     return;
   }
   if (placement === "auto") {
@@ -341,45 +463,64 @@ function applyPlacementByMode(placement: PanelPlacement): void {
     applySmartPlacement(host);
     return;
   }
-
   autoPlaced = false;
-  const width = Math.max(host.offsetWidth, 60);
-  const left =
-    placement === "left"
-      ? 14
-      : Math.max(window.innerWidth - width - 14, 6);
-  const top = Math.max(window.innerHeight - Math.max(host.offsetHeight, 36) - 22, 6);
+  const width = Math.max(host.offsetWidth, 64);
+  const sideGap = 14;
+  const left = placement === "left" ? sideGap : Math.max(window.innerWidth - width - sideGap, 6);
+  const top = Math.max(window.innerHeight - Math.max(host.offsetHeight, 40) - 22, 6);
   host.style.left = `${Math.round(left)}px`;
   host.style.top = `${Math.round(top)}px`;
   host.style.right = "auto";
   host.style.bottom = "auto";
+  clusterEl.dataset.side = placement;
 }
 
 function applySmartPlacement(hostEl: HTMLDivElement): void {
-  const sideGap = 14;
-  const candidatesBottom = [22, 98, 174, 250];
-  const width = Math.max(hostEl.offsetWidth, 60);
-  const height = Math.max(hostEl.offsetHeight, 36);
+  if (!clusterEl) {
+    return;
+  }
+  const sideGap = 12;
+  const candidatesBottom = [26, 96, 166, 236];
+  const width = Math.max(hostEl.offsetWidth, 64);
+  const height = Math.max(hostEl.offsetHeight, 40);
 
   for (const side of ["right", "left"] as const) {
     for (const bottom of candidatesBottom) {
-      const left =
-        side === "right"
-          ? window.innerWidth - sideGap - width
-          : sideGap;
+      const left = side === "right" ? window.innerWidth - sideGap - width : sideGap;
       const top = Math.max(window.innerHeight - bottom - height, 6);
-
       if (isOccupied(left + width / 2, top + height / 2, hostEl)) {
         continue;
       }
-
       hostEl.style.left = `${Math.round(left)}px`;
       hostEl.style.top = `${Math.round(top)}px`;
       hostEl.style.right = "auto";
       hostEl.style.bottom = "auto";
+      clusterEl.dataset.side = side;
       return;
     }
   }
+}
+
+function detectSide(): "left" | "right" {
+  if (!host) {
+    return "right";
+  }
+  const rect = host.getBoundingClientRect();
+  return rect.left + rect.width / 2 < window.innerWidth / 2 ? "left" : "right";
+}
+
+function snapToEdge(hostEl: HTMLDivElement, cluster: HTMLDivElement): void {
+  const rect = hostEl.getBoundingClientRect();
+  const toLeft = rect.left + rect.width / 2 < window.innerWidth / 2;
+  const top = clamp(rect.top, 6, Math.max(window.innerHeight - rect.height - 6, 6));
+  hostEl.style.top = `${top}px`;
+  if (toLeft) {
+    hostEl.style.left = "10px";
+    cluster.dataset.side = "left";
+    return;
+  }
+  hostEl.style.left = `${Math.max(window.innerWidth - rect.width - 10, 6)}px`;
+  cluster.dataset.side = "right";
 }
 
 function isOccupied(x: number, y: number, hostEl: HTMLElement): boolean {
@@ -421,94 +562,111 @@ function throttle<T extends (...args: unknown[]) => void>(fn: T, waitMs: number)
   }) as T;
 }
 
-function snapToEdge(hostEl: HTMLDivElement): void {
-  const rect = hostEl.getBoundingClientRect();
-  const toLeft = rect.left + rect.width / 2 < window.innerWidth / 2;
-  const top = clamp(rect.top, 6, Math.max(window.innerHeight - rect.height - 6, 6));
-  hostEl.style.top = `${top}px`;
-  if (toLeft) {
-    hostEl.style.left = "10px";
-    return;
-  }
-  hostEl.style.left = `${Math.max(window.innerWidth - rect.width - 10, 6)}px`;
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
 const styles = `
-.cbx-root{
-  pointer-events:auto;
+.cbx-cluster{
+  position:relative;
   display:flex;
-  align-items:flex-end;
-  gap:8px;
+  align-items:center;
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-.cbx-fab{
-  border:1px solid rgba(148,163,184,.45);
+.cbx-track{
+  position:absolute;
+  top:-8px;
+  bottom:-8px;
+  left:-8px;
+  right:-8px;
+}
+.cbx-anchor{
+  position:relative;
+  z-index:3;
+  border:1px solid rgba(148,163,184,.5);
   border-radius:999px;
   padding:7px 11px;
   font-size:12px;
-  background:rgba(255,255,255,.85);
+  font-weight:600;
+  background:rgba(255,255,255,.9);
   color:#0f172a;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
+  box-shadow:0 8px 24px rgba(2,6,23,.16);
   cursor:pointer;
 }
-.cbx-panel{
-  width:240px;
-  border:1px solid rgba(148,163,184,.45);
-  border-radius:12px;
-  background:rgba(255,255,255,.96);
-  color:#0f172a;
-  box-shadow:0 10px 30px rgba(2,6,23,.18);
-  padding:10px;
+.cbx-anchor-off{
+  opacity:.78;
 }
-.cbx-hidden{ display:none; }
-.cbx-header{
+.cbx-toolbar{
+  position:absolute;
   display:flex;
-  align-items:center;
-  justify-content:space-between;
-  margin-bottom:8px;
-  cursor:move;
-  user-select:none;
+  gap:6px;
+  z-index:2;
 }
-.cbx-title{ font-size:12px; font-weight:700; letter-spacing:.2px; }
-.cbx-icon-btn{
-  border:0;
-  background:transparent;
-  color:#334155;
+.cbx-cluster[data-side="right"] .cbx-toolbar{
+  right:calc(100% + 8px);
+}
+.cbx-cluster[data-side="left"] .cbx-toolbar{
+  left:calc(100% + 8px);
+}
+.cbx-tool{
+  width:30px;
+  height:30px;
+  border:1px solid #cbd5e1;
+  border-radius:999px;
+  background:rgba(255,255,255,.97);
+  color:#1e293b;
+  font-size:14px;
   cursor:pointer;
-  font-size:15px;
-  line-height:1;
+  box-shadow:0 4px 14px rgba(15,23,42,.12);
 }
-.cbx-status{ font-size:12px; opacity:.85; margin-bottom:8px; }
-.cbx-hint{ font-size:11px; color:#334155; opacity:.85; margin-bottom:8px; }
-.cbx-row{ display:flex; gap:6px; margin-bottom:6px; }
-.cbx-btn{
-  flex:1;
+.cbx-tooltip{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  max-width:200px;
+  padding:5px 8px;
   border:1px solid #cbd5e1;
   border-radius:8px;
-  background:#fff;
-  color:#1e293b;
-  font-size:12px;
-  padding:6px 8px;
-  cursor:pointer;
-}
-.cbx-btn:disabled{
-  opacity:.45;
-  cursor:not-allowed;
-}
-.cbx-stats{
-  margin-top:4px;
-  padding-top:8px;
-  border-top:1px dashed #cbd5e1;
+  background:#ffffff;
+  color:#0f172a;
   font-size:11px;
-  color:#334155;
+  white-space:nowrap;
+  z-index:4;
+  box-shadow:0 8px 20px rgba(15,23,42,.12);
 }
-.cbx-help{
-  margin-top:6px;
-  font-size:10px;
-  opacity:.65;
+.cbx-cluster[data-side="right"] .cbx-tooltip{
+  right:calc(100% + 230px);
 }
+.cbx-cluster[data-side="left"] .cbx-tooltip{
+  left:calc(100% + 230px);
+}
+.cbx-detail{
+  position:absolute;
+  top:38px;
+  width:220px;
+  border:1px solid rgba(148,163,184,.45);
+  border-radius:10px;
+  background:rgba(255,255,255,.98);
+  color:#0f172a;
+  padding:8px 10px;
+  box-shadow:0 10px 24px rgba(15,23,42,.14);
+  z-index:4;
+}
+.cbx-cluster[data-side="right"] .cbx-detail{
+  right:0;
+}
+.cbx-cluster[data-side="left"] .cbx-detail{
+  left:0;
+}
+.cbx-detail-title{
+  font-size:12px;
+  font-weight:700;
+  margin-bottom:6px;
+}
+.cbx-detail-row{
+  font-size:11px;
+  line-height:1.5;
+}
+.cbx-hidden{ display:none; }
 `;
