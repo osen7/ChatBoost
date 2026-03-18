@@ -103,3 +103,4 @@ src/
 1. [Contributing](./CONTRIBUTING.md)
 2. [Security](./SECURITY.md)
 3. [Changelog](./CHANGELOG.md)
+4. [Release Notes](./RELEASE_NOTES.md)
