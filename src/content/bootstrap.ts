@@ -1,13 +1,15 @@
 import { resolveAdapter } from "../adapters";
 import { OptimizationEngine } from "../core/engine";
-import { defaultConfig } from "../shared/config";
+import { defaultMode, getConfigForMode } from "../shared/config";
 import { EXT_ROOT_ATTR } from "../shared/constants";
+import type { PerformanceMode } from "../shared/types";
 import { mountPanel, unmountPanel, updatePanelState } from "../ui/panel";
 import "../ui/styles.css";
 
 let engine: OptimizationEngine | null = null;
 let enabledState = true;
 let pausedState = false;
+let modeState: PerformanceMode = defaultMode;
 let statsTimer: number | null = null;
 
 export function bootstrap(): void {
@@ -17,6 +19,9 @@ export function bootstrap(): void {
     },
     onTogglePause(nextPaused) {
       setPaused(nextPaused);
+    },
+    onCycleMode() {
+      setMode(nextMode(modeState));
     },
     onRestoreAll() {
       engine?.restoreAll();
@@ -40,7 +45,7 @@ export function bootstrap(): void {
   }
 
   document.documentElement.setAttribute(EXT_ROOT_ATTR, "1");
-  engine = new OptimizationEngine(adapter, defaultConfig);
+  engine = new OptimizationEngine(adapter, getConfigForMode(modeState));
   engine.start();
   startStatsPolling();
   refreshPanel();
@@ -72,6 +77,12 @@ export function syncEnabledState(enabled: boolean): void {
   refreshPanel();
 }
 
+export function syncModeState(mode: PerformanceMode): void {
+  modeState = mode;
+  engine?.updateConfig(getConfigForMode(modeState));
+  refreshPanel();
+}
+
 export function setPaused(paused: boolean): void {
   pausedState = paused;
   if (paused) {
@@ -81,6 +92,13 @@ export function setPaused(paused: boolean): void {
     return;
   }
   bootstrap();
+  refreshPanel();
+}
+
+export function setMode(mode: PerformanceMode): void {
+  modeState = mode;
+  chrome.storage.sync.set({ mode });
+  engine?.updateConfig(getConfigForMode(modeState));
   refreshPanel();
 }
 
@@ -108,7 +126,7 @@ function buildPanelState() {
   return {
     enabled: enabledState,
     paused: pausedState,
-    modeLabel: pausedState ? "Paused" : enabledState ? "Auto" : "Disabled",
+    modeLabel: modeToLabel(modeState),
     collapsedCount: stats.collapsed,
     placeholderCount: stats.placeholder,
     totalCount: stats.total
@@ -134,4 +152,16 @@ function stopStatsPolling(): void {
   }
   window.clearInterval(statsTimer);
   statsTimer = null;
+}
+
+function modeToLabel(mode: PerformanceMode): string {
+  if (mode === "lite") return "Lite";
+  if (mode === "aggressive") return "Aggressive";
+  return "Balanced";
+}
+
+function nextMode(mode: PerformanceMode): PerformanceMode {
+  if (mode === "lite") return "balanced";
+  if (mode === "balanced") return "aggressive";
+  return "lite";
 }

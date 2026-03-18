@@ -13,13 +13,12 @@ export class OptimizationEngine {
   private readonly onScroll = throttle(() => this.scheduleUpdate(), 80);
   private readonly onClick = (event: MouseEvent) => this.handleClick(event);
   private readonly observer = new MutationObserver(() => this.scheduleRefresh());
+  private config: EngineConfig;
   private stopped = false;
   private thread: ThreadState;
 
-  constructor(
-    private readonly adapter: ChatSiteAdapter,
-    private readonly config: EngineConfig
-  ) {
+  constructor(private readonly adapter: ChatSiteAdapter, config: EngineConfig) {
+    this.config = config;
     this.thread = createEmptyThread(adapter.site);
   }
 
@@ -71,6 +70,11 @@ export class OptimizationEngine {
       if (msg.flags.isStreaming) stats.streaming += 1;
     }
     return stats;
+  }
+
+  updateConfig(nextConfig: EngineConfig): void {
+    this.config = nextConfig;
+    this.scheduleUpdate();
   }
 
   private scheduleRefresh(): void {

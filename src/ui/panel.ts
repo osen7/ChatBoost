@@ -3,6 +3,7 @@ import { PANEL_ATTR } from "../shared/constants";
 interface PanelHandlers {
   onToggleEnabled(nextEnabled: boolean): void;
   onTogglePause(nextPaused: boolean): void;
+  onCycleMode(): void;
   onRestoreAll(): void;
 }
 
@@ -28,12 +29,15 @@ let restoreBtn: HTMLButtonElement | null = null;
 let hideBtn: HTMLButtonElement | null = null;
 let statusEl: HTMLDivElement | null = null;
 let statsEl: HTMLDivElement | null = null;
+let modeBtn: HTMLButtonElement | null = null;
+let autoPlaced = true;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
 
 export function mountPanel(initialState: PanelState, handlers: PanelHandlers): void {
   handlersRef = handlers;
   state = initialState;
+  autoPlaced = true;
 
   if (host?.isConnected) {
     renderState();
@@ -60,6 +64,9 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
         </div>
         <div class="cbx-status" part="status"></div>
         <div class="cbx-row">
+          <button class="cbx-btn" data-cbx-action="mode" type="button"></button>
+        </div>
+        <div class="cbx-row">
           <button class="cbx-btn" data-cbx-action="toggle-enabled" type="button"></button>
           <button class="cbx-btn" data-cbx-action="toggle-pause" type="button"></button>
         </div>
@@ -77,6 +84,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   panelEl = shadow.querySelector(".cbx-panel");
   enableBtn = shadow.querySelector("[data-cbx-action='toggle-enabled']");
   pauseBtn = shadow.querySelector("[data-cbx-action='toggle-pause']");
+  modeBtn = shadow.querySelector("[data-cbx-action='mode']");
   restoreBtn = shadow.querySelector("[data-cbx-action='restore']");
   hideBtn = shadow.querySelector("[data-cbx-action='hide']");
   statusEl = shadow.querySelector(".cbx-status");
@@ -103,6 +111,10 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
       handlersRef?.onToggleEnabled(!(state?.enabled ?? true));
       return;
     }
+    if (action === "mode") {
+      handlersRef?.onCycleMode();
+      return;
+    }
     if (action === "toggle-pause") {
       handlersRef?.onTogglePause(!(state?.paused ?? false));
       return;
@@ -121,6 +133,8 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
 
   const dragCleanup = installDragAndSnap(host, shadow);
   cleanupFns.push(dragCleanup);
+  const avoidCleanup = installAutoAvoidance(host);
+  cleanupFns.push(avoidCleanup);
 
   const keyHandler = (event: KeyboardEvent) => {
     if (event.ctrlKey !== HOTKEY.ctrl || event.shiftKey !== HOTKEY.shift) {
@@ -132,6 +146,9 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
     event.preventDefault();
     const hidden = host?.style.display === "none";
     setVisible(hidden);
+    if (hidden && host) {
+      applySmartPlacement(host);
+    }
   };
   document.addEventListener("keydown", keyHandler, true);
   cleanupFns.push(() => document.removeEventListener("keydown", keyHandler, true));
@@ -151,6 +168,7 @@ export function unmountPanel(): void {
   panelEl = null;
   enableBtn = null;
   pauseBtn = null;
+  modeBtn = null;
   restoreBtn = null;
   hideBtn = null;
   statusEl = null;
@@ -165,7 +183,7 @@ export function updatePanelState(nextState: PanelState): void {
 }
 
 function renderState(): void {
-  if (!state || !fabBtn || !enableBtn || !pauseBtn || !statusEl || !statsEl) {
+  if (!state || !fabBtn || !enableBtn || !pauseBtn || !statusEl || !statsEl || !modeBtn) {
     return;
   }
 
@@ -173,6 +191,8 @@ function renderState(): void {
   enableBtn.textContent = state.enabled ? "Disable Boost" : "Enable Boost";
   pauseBtn.textContent = state.paused ? "Resume Page" : "Pause Page";
   pauseBtn.disabled = !state.enabled;
+  modeBtn.textContent = `Mode: ${state.modeLabel}`;
+  modeBtn.disabled = state.paused;
 
   statusEl.textContent = `Mode: ${state.modeLabel}`;
   statsEl.textContent = [
@@ -214,6 +234,7 @@ function installDragAndSnap(hostEl: HTMLDivElement, shadow: ShadowRoot): () => v
   let offsetY = 0;
 
   const onMouseDown = (event: MouseEvent) => {
+    autoPlaced = false;
     dragging = true;
     const rect = hostEl.getBoundingClientRect();
     hostEl.style.left = `${rect.left}px`;
@@ -254,6 +275,90 @@ function installDragAndSnap(hostEl: HTMLDivElement, shadow: ShadowRoot): () => v
     document.removeEventListener("mousemove", onMouseMove, true);
     document.removeEventListener("mouseup", onMouseUp, true);
   };
+}
+
+function installAutoAvoidance(hostEl: HTMLDivElement): () => void {
+  const apply = () => {
+    if (!autoPlaced) {
+      return;
+    }
+    applySmartPlacement(hostEl);
+  };
+  const throttledApply = throttle(apply, 150);
+
+  window.addEventListener("resize", throttledApply, true);
+  window.addEventListener("scroll", throttledApply, true);
+  window.setTimeout(apply, 80);
+  return () => {
+    window.removeEventListener("resize", throttledApply, true);
+    window.removeEventListener("scroll", throttledApply, true);
+  };
+}
+
+function applySmartPlacement(hostEl: HTMLDivElement): void {
+  const sideGap = 14;
+  const candidatesBottom = [22, 98, 174, 250];
+  const width = Math.max(hostEl.offsetWidth, 60);
+  const height = Math.max(hostEl.offsetHeight, 36);
+
+  for (const side of ["right", "left"] as const) {
+    for (const bottom of candidatesBottom) {
+      const left =
+        side === "right"
+          ? window.innerWidth - sideGap - width
+          : sideGap;
+      const top = Math.max(window.innerHeight - bottom - height, 6);
+
+      if (isOccupied(left + width / 2, top + height / 2, hostEl)) {
+        continue;
+      }
+
+      hostEl.style.left = `${Math.round(left)}px`;
+      hostEl.style.top = `${Math.round(top)}px`;
+      hostEl.style.right = "auto";
+      hostEl.style.bottom = "auto";
+      return;
+    }
+  }
+}
+
+function isOccupied(x: number, y: number, hostEl: HTMLElement): boolean {
+  const stack = document.elementsFromPoint(x, y);
+  for (const node of stack) {
+    if (!(node instanceof HTMLElement)) {
+      continue;
+    }
+    if (node === hostEl || hostEl.contains(node)) {
+      continue;
+    }
+    const style = window.getComputedStyle(node);
+    if (style.visibility === "hidden" || style.display === "none") {
+      continue;
+    }
+    const positioned = style.position === "fixed" || style.position === "sticky";
+    const clickable =
+      node.tagName === "BUTTON" ||
+      node.tagName === "A" ||
+      node.getAttribute("role") === "button" ||
+      node.onclick !== null;
+    if (positioned || clickable) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function throttle<T extends (...args: unknown[]) => void>(fn: T, waitMs: number): T {
+  let timer: number | null = null;
+  return ((...args: unknown[]) => {
+    if (timer !== null) {
+      return;
+    }
+    timer = window.setTimeout(() => {
+      timer = null;
+      fn(...args);
+    }, waitMs);
+  }) as T;
 }
 
 function snapToEdge(hostEl: HTMLDivElement): void {

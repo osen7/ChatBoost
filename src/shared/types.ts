@@ -41,6 +41,8 @@ export interface EngineConfig {
   enableAutoCollapse: boolean;
 }
 
+export type PerformanceMode = "lite" | "balanced" | "aggressive";
+
 export interface ViewportInfo {
   top: number;
   bottom: number;
