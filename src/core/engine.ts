@@ -1,6 +1,5 @@
 import type { ChatSiteAdapter } from "../adapters/base";
 import { readControlAction } from "../features/messageControls";
-import { getConfigForMode } from "../shared/config";
 import { applyRenderMode } from "./renderState";
 import { Scheduler } from "./scheduler";
 import { SafetyGuard } from "./safety";
@@ -191,7 +190,7 @@ export class OptimizationEngine {
       }
       const updateStartedAt = performance.now();
       const viewport = getViewportInfo();
-      const effectiveConfig = getEffectiveConfig(this.config, this.pressureLevel);
+      const effectiveConfig = getViewportPriorityConfig(this.config, this.scrollSpeedPxPerSec);
       const measureBufferScreens = Math.max(effectiveConfig.collapseBufferScreens + 1, 2);
       const protectedLatestIds = getLatestProtectedIds(this.thread.messages, 2);
       for (const msg of this.thread.messages) {
@@ -403,14 +402,8 @@ function getOptimizationReason(
   if (distanceScreens > cfg.fullBufferScreens) {
     reasons.push("远离当前视口");
   }
-  if (msg.flags.isHeavy) {
-    reasons.push("消息较重");
-  }
-  if (msg.flags.codeBlockCount > 0) {
-    reasons.push("含代码块");
-  }
   if (cfg.enablePlaceholder && distanceScreens > cfg.collapseBufferScreens) {
-    reasons.push("当前模式允许占位");
+    reasons.push("已进入远距占位区");
   }
   return reasons.join("，") || "为了减少当前页面渲染压力";
 }
@@ -443,11 +436,6 @@ export function decideRenderMode(
   }
 
   let distanceScreens = getDistanceInScreens(msg.metrics, viewport);
-  if (msg.flags.codeBlockCount >= 2) {
-    distanceScreens += 1.0;
-  } else if (msg.flags.codeBlockCount === 1) {
-    distanceScreens += 0.6;
-  }
   if (opts && opts.speedPxPerSec >= 1200) {
     const position = getMessagePosition(msg, viewport);
     if (opts.direction === "up") {
@@ -480,14 +468,16 @@ function getMessagePosition(
   return "inside";
 }
 
-function getEffectiveConfig(base: EngineConfig, pressure: PressureLevel): EngineConfig {
-  if (pressure === "low") {
-    return getConfigForMode("lite");
-  }
-  if (pressure === "high") {
-    return getConfigForMode("aggressive");
-  }
-  return getConfigForMode("balanced");
+function getViewportPriorityConfig(base: EngineConfig, scrollSpeedPxPerSec: number): EngineConfig {
+  const fullBufferScreens = scrollSpeedPxPerSec >= 1200 ? 0.15 : 0.4;
+  const collapseBufferScreens = scrollSpeedPxPerSec >= 1200 ? 0.8 : 1.4;
+  return {
+    ...base,
+    fullBufferScreens,
+    collapseBufferScreens,
+    enablePlaceholder: true,
+    enableAutoCollapse: true
+  };
 }
 
 function decidePressureLevel(input: {
