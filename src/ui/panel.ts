@@ -489,7 +489,7 @@ function renderOptimizedDetail(s: PanelState): string {
           <div class="cbx-optimized-preview">${escapeHtml(item.previewText || "(空内容)")}</div>
           <div class="cbx-optimized-reason">${escapeHtml(item.optimizationReason)}</div>
           <div class="cbx-optimized-actions">
-            <button class="cbx-detail-btn" type="button" data-cbx-restore="${item.id}">恢复</button>
+            <button class="cbx-detail-btn" type="button" data-cbx-restore="${item.id}">临时恢复(15s)</button>
           </div>
         </div>
       `;
@@ -499,6 +499,7 @@ function renderOptimizedDetail(s: PanelState): string {
   return `
     <div class="cbx-detail-title">已轻量化内容</div>
     <div class="cbx-detail-row">当前共有 ${s.optimizedMessages.length} 条消息被折叠或占位。</div>
+    <div class="cbx-detail-row">点击条目会立即定位并临时恢复，约 15 秒后自动回到优化策略。</div>
     <div class="cbx-optimized-list">${items || '<div class="cbx-detail-row">当前没有被轻量化的消息。</div>'}</div>
   `;
 }

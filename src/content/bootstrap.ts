@@ -15,6 +15,7 @@ let placementState: PanelPlacement = "right";
 let statsTimer: number | null = null;
 let urlWatchTimer: number | null = null;
 let conversationChangeTimer: number | null = null;
+let bootstrapRetryTimer: number | null = null;
 let stopRouteHooks: (() => void) | null = null;
 let lastUrl = "";
 let lastThreadId = "";
@@ -63,9 +64,11 @@ export function bootstrap(): void {
   const nextEngine = new OptimizationEngine(adapter, getConfigForMode(modeState));
   const started = nextEngine.start();
   if (!started) {
+    scheduleBootstrapRetry();
     return;
   }
 
+  clearBootstrapRetry();
   engine = nextEngine;
   activeAdapter = adapter;
   lastUrl = window.location.href;
@@ -81,6 +84,7 @@ export function shutdown(): void {
   enabledState = false;
   pausedState = false;
   stopEngineAndRestore();
+  clearBootstrapRetry();
   stopStatsPolling();
   stopUrlWatch();
   stopRouteWatchHooks();
@@ -90,6 +94,7 @@ export function shutdown(): void {
 
 export function setEnabled(enabled: boolean): void {
   enabledState = enabled;
+  persistSettings();
 
   if (enabled) {
     bootstrap();
@@ -131,12 +136,14 @@ export function setPaused(paused: boolean): void {
 
 export function setMode(mode: PerformanceMode): void {
   modeState = mode;
+  persistSettings();
   engine?.updateConfig(getConfigForMode(modeState));
   refreshPanel();
 }
 
 export function setPlacement(placement: PanelPlacement): void {
   placementState = placement;
+  persistSettings();
   refreshPanel();
 }
 
@@ -151,6 +158,14 @@ function stopEngineAndRestore(): void {
   engine = null;
   activeAdapter = null;
   document.documentElement.removeAttribute(EXT_ROOT_ATTR);
+}
+
+function persistSettings(): void {
+  chrome.storage.sync.set({
+    enabled: enabledState,
+    mode: modeState,
+    placement: placementState
+  });
 }
 
 function buildPanelState() {
@@ -218,6 +233,24 @@ function stopUrlWatch(): void {
     window.clearTimeout(conversationChangeTimer);
     conversationChangeTimer = null;
   }
+}
+
+function scheduleBootstrapRetry(): void {
+  if (!enabledState || pausedState || bootstrapRetryTimer !== null) {
+    return;
+  }
+  bootstrapRetryTimer = window.setTimeout(() => {
+    bootstrapRetryTimer = null;
+    bootstrap();
+  }, 800);
+}
+
+function clearBootstrapRetry(): void {
+  if (bootstrapRetryTimer === null) {
+    return;
+  }
+  window.clearTimeout(bootstrapRetryTimer);
+  bootstrapRetryTimer = null;
 }
 
 function startRouteHooks(): void {
