@@ -97,3 +97,9 @@ src/
 2. Automated benchmark workflow and regression reports.
 3. Claude / Gemini adapter parity.
 4. Production hardening for host DOM changes.
+
+## Project Docs
+
+1. [Contributing](./CONTRIBUTING.md)
+2. [Security](./SECURITY.md)
+3. [Changelog](./CHANGELOG.md)
