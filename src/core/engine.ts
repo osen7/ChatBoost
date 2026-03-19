@@ -119,7 +119,7 @@ export class OptimizationEngine {
       id: msg.id,
       role: msg.role,
       renderMode: msg.renderMode,
-      previewText: msg.previewText || "(empty)",
+      previewText: sanitizeIndexPreview(msg.previewText || "(empty)"),
       optimizationReason: msg.optimizationReason
     }));
   }
@@ -386,6 +386,11 @@ export class OptimizationEngine {
       this.longTaskTimestamps.shift();
     }
   }
+}
+
+function sanitizeIndexPreview(text: string): string {
+  const cleaned = text.replace(/⚡?\s*已轻量化，?点击列表可恢复/g, "").trim();
+  return cleaned || "(empty)";
 }
 
 function getOptimizationReason(

@@ -75,7 +75,7 @@ function patchModel(
     el,
     contentEl,
     role: adapter.getRole(el),
-    previewText: getPreviewText(contentEl ?? el),
+    previewText: getPreviewText(contentEl ?? el) || old.previewText,
     flags: {
       ...old.flags,
       isStreaming: adapter.isStreaming(el),
@@ -87,7 +87,9 @@ function patchModel(
 }
 
 function getPreviewText(el: HTMLElement): string {
-  return (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const raw = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+  const cleaned = raw.replace(/⚡?\s*已轻量化，?点击列表可恢复/g, "").trim();
+  return cleaned.slice(0, 80);
 }
 
 function detectInteractiveMessage(contentEl: HTMLElement): boolean {

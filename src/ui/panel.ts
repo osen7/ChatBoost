@@ -44,6 +44,7 @@ let dragMoved = false;
 let dragOffsetY = 0;
 let manualPositionLocked = false;
 let optimizedNavIndex = 0;
+let indexBubbleVisible = false;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
 const DRAG_THRESHOLD = 6;
@@ -169,6 +170,7 @@ export function unmountPanel(): void {
   handlersRef = null;
   appliedPlacement = null;
   manualPositionLocked = false;
+  indexBubbleVisible = false;
 }
 
 export function updatePanelState(nextState: PanelState): void {
@@ -190,7 +192,7 @@ function renderState(): void {
   renderIndexRail();
   renderDetail();
   setToolbarVisible(true);
-  setDetailVisible(true);
+  setDetailVisible(indexBubbleVisible);
 
   if (appliedPlacement !== state.placement) {
     applyPlacementByMode(state.placement);
@@ -268,6 +270,16 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
 }
 
 function bindRailActions(railRoot: HTMLElement): void {
+  railRoot.onmouseenter = () => {
+    indexBubbleVisible = true;
+    setDetailVisible(true);
+    positionDetailPanel();
+  };
+  railRoot.onmouseleave = () => {
+    indexBubbleVisible = false;
+    setDetailVisible(false);
+  };
+
   const markerLines = railRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-nav-line]");
   for (const line of markerLines) {
     line.onmouseenter = () => {

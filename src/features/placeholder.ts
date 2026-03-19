@@ -2,7 +2,6 @@ import { PLACEHOLDER_ATTR } from "../shared/constants";
 import type { MessageModel } from "../shared/types";
 
 const PLACEHOLDER_CLASS = "chatboost-placeholder";
-const PLACEHOLDER_NOTE_CLASS = "chatboost-placeholder-note";
 const PLACEHOLDER_NOTE_ATTR = "data-chatboost-placeholder-note";
 const MAX_DEHYDRATED_BYTES = 20 * 1024 * 1024;
 let dehydratedBytesInUse = 0;
@@ -13,7 +12,8 @@ export function applyPlaceholderMode(msg: MessageModel): void {
   msg.el.classList.remove("chatboost-collapsed");
   msg.el.setAttribute(PLACEHOLDER_ATTR, "true");
   msg.el.style.minHeight = `${Math.max(msg.metrics.height, 80)}px`;
-  ensurePlaceholderNote(msg);
+  // Keep placeholder fully silent for users and clean any legacy note nodes.
+  removePlaceholderNote(msg);
   if (msg.flags.isInteractive) {
     hideContentByDisplay(msg);
     return;
@@ -98,7 +98,7 @@ function evictToHidden(msg: MessageModel): void {
   releaseDehydrated(msg);
   msg.contentEl.innerHTML = html;
   hideContentByDisplay(msg);
-  ensurePlaceholderNote(msg);
+  removePlaceholderNote(msg);
 }
 
 function releaseDehydrated(msg: MessageModel): void {
@@ -127,18 +127,6 @@ function pruneInvalidLruEntries(): void {
     }
     dehydratedLru.delete(messageId);
   }
-}
-
-function ensurePlaceholderNote(msg: MessageModel): void {
-  const existing = msg.el.querySelector<HTMLElement>(`[${PLACEHOLDER_NOTE_ATTR}]`);
-  if (existing) {
-    return;
-  }
-  const note = document.createElement("div");
-  note.className = PLACEHOLDER_NOTE_CLASS;
-  note.setAttribute(PLACEHOLDER_NOTE_ATTR, "true");
-  note.textContent = "⚡ 已轻量化，点击列表可恢复";
-  msg.el.appendChild(note);
 }
 
 function removePlaceholderNote(msg: MessageModel): void {
