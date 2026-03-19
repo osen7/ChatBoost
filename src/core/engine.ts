@@ -146,15 +146,33 @@ export class OptimizationEngine {
   }
 
   jumpToMessage(messageId: string): void {
-    const msg = this.thread.messages.find((item) => item.id === messageId);
+    const targetIndex = this.thread.messages.findIndex((item) => item.id === messageId);
+    if (targetIndex < 0) {
+      return;
+    }
+    const msg = this.thread.messages[targetIndex];
     if (!msg) {
       return;
     }
-    this.revealTemporarily(msg);
-    msg.optimizationReason = undefined;
-    msg.lastModeChangedAt = Date.now();
-    applyRenderMode(msg, "full");
-    this.scrollIntoViewAfterLayout(msg);
+    const farJump = this.isFarFromViewport(msg);
+    const needsRestore = msg.renderMode !== "full";
+
+    if (farJump && needsRestore) {
+      // Phase 1: prioritize instant navigation, avoid heavy restore before moving viewport.
+      msg.el.scrollIntoView({ behavior: "auto", block: "center" });
+      window.setTimeout(() => {
+        if (this.stopped || !msg.el.isConnected) {
+          return;
+        }
+        // Phase 2: restore after landing to reduce jump-time jank.
+        this.restoreJumpContext(targetIndex);
+        this.scrollIntoViewAfterLayout(msg);
+      }, 70);
+    } else {
+      this.restoreJumpContext(targetIndex);
+      this.scrollIntoViewAfterLayout(msg);
+    }
+
     window.setTimeout(() => {
       if (!this.stopped) {
         this.scheduleUpdate();
@@ -287,6 +305,43 @@ export class OptimizationEngine {
         highlightMessage(msg.el);
       });
     });
+  }
+
+  private isFarFromViewport(msg: MessageModel): boolean {
+    const rect = msg.el.getBoundingClientRect();
+    const viewportHeight = Math.max(window.innerHeight, 1);
+    if (rect.bottom < 0) {
+      return Math.abs(rect.bottom) / viewportHeight > 1;
+    }
+    if (rect.top > viewportHeight) {
+      return Math.abs(rect.top - viewportHeight) / viewportHeight > 1;
+    }
+    return false;
+  }
+
+  private restoreJumpContext(targetIndex: number): void {
+    const target = this.thread.messages[targetIndex];
+    if (!target) {
+      return;
+    }
+    this.revealTemporarily(target);
+    this.forceMessageFull(target);
+
+    // Restore immediate neighbors to avoid "jumped but context appears seconds later".
+    const prev = this.thread.messages[targetIndex - 1];
+    const next = this.thread.messages[targetIndex + 1];
+    if (prev) {
+      this.forceMessageFull(prev);
+    }
+    if (next) {
+      this.forceMessageFull(next);
+    }
+  }
+
+  private forceMessageFull(msg: MessageModel): void {
+    msg.optimizationReason = undefined;
+    msg.lastModeChangedAt = Date.now();
+    applyRenderMode(msg, "full");
   }
 
   private handleClick(event: MouseEvent): void {

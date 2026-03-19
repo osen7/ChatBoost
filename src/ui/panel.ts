@@ -34,21 +34,19 @@ let cleanupFns: Array<() => void> = [];
 let anchorEl: HTMLButtonElement | null = null;
 let clusterEl: HTMLDivElement | null = null;
 let toolbarEl: HTMLDivElement | null = null;
-let tooltipEl: HTMLDivElement | null = null;
 let detailEl: HTMLDivElement | null = null;
 let appliedPlacement: PanelPlacement | null = null;
 let hidden = false;
-let closeTimer: number | null = null;
 let dragActive = false;
 let dragMoved = false;
 let dragOffsetY = 0;
 let manualPositionLocked = false;
 let optimizedNavIndex = 0;
 let indexBubbleVisible = false;
+let bubbleHideTimer: number | null = null;
 
 const HOTKEY = { ctrl: true, shift: true, key: "S" };
 const DRAG_THRESHOLD = 6;
-const COLLAPSE_DELAY_MS = 160;
 
 const lightningIcon = `
 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -82,7 +80,6 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
         <span class="cbx-anchor-icon" aria-hidden="true">${lightningIcon}</span>
         <span class="cbx-anchor-label" aria-hidden="true"></span>
       </button>
-      <div class="cbx-tooltip cbx-hidden"></div>
       <div class="cbx-detail cbx-hidden"></div>
     </div>
   `;
@@ -90,10 +87,9 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
   anchorEl = shadow.querySelector(".cbx-anchor");
   clusterEl = shadow.querySelector(".cbx-cluster");
   toolbarEl = shadow.querySelector(".cbx-toolbar");
-  tooltipEl = shadow.querySelector(".cbx-tooltip");
   detailEl = shadow.querySelector(".cbx-detail");
 
-  if (!anchorEl || !clusterEl || !toolbarEl || !tooltipEl || !detailEl) {
+  if (!anchorEl || !clusterEl || !toolbarEl || !detailEl) {
     return;
   }
 
@@ -154,7 +150,7 @@ export function mountPanel(initialState: PanelState, handlers: PanelHandlers): v
 }
 
 export function unmountPanel(): void {
-  clearCloseTimer();
+  clearBubbleHideTimer();
   for (const cleanup of cleanupFns) {
     cleanup();
   }
@@ -164,7 +160,6 @@ export function unmountPanel(): void {
   anchorEl = null;
   clusterEl = null;
   toolbarEl = null;
-  tooltipEl = null;
   detailEl = null;
   state = null;
   handlersRef = null;
@@ -233,26 +228,14 @@ function setDetailVisible(visible: boolean): void {
   detailEl.classList.toggle("cbx-hidden", !visible);
 }
 
-function scheduleClose(): void {
-  clearCloseTimer();
-  closeTimer = window.setTimeout(() => {
-    if (dragActive) {
-      return;
-    }
-    setToolbarVisible(true);
-    setDetailVisible(true);
-  }, COLLAPSE_DELAY_MS);
-}
-
-function clearCloseTimer(): void {
-  if (closeTimer === null) {
-    return;
-  }
-  window.clearTimeout(closeTimer);
-  closeTimer = null;
-}
-
 function bindDetailActions(detailRoot: HTMLDivElement): void {
+  detailRoot.onmouseenter = () => {
+    showIndexBubble();
+  };
+  detailRoot.onmouseleave = () => {
+    hideIndexBubbleSoon();
+  };
+
   const jumpCard = detailRoot.querySelector<HTMLElement>("[data-cbx-jump-current]");
   if (jumpCard) {
     jumpCard.onclick = () => {
@@ -271,13 +254,18 @@ function bindDetailActions(detailRoot: HTMLDivElement): void {
 
 function bindRailActions(railRoot: HTMLElement): void {
   railRoot.onmouseenter = () => {
-    indexBubbleVisible = true;
-    setDetailVisible(true);
-    positionDetailPanel();
+    showIndexBubble();
   };
   railRoot.onmouseleave = () => {
-    indexBubbleVisible = false;
-    setDetailVisible(false);
+    hideIndexBubbleSoon();
+  };
+  railRoot.onwheel = (event) => {
+    if (!state || state.optimizedMessages.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const direction: -1 | 1 = event.deltaY > 0 ? 1 : -1;
+    jumpByNav(direction);
   };
 
   const markerLines = railRoot.querySelectorAll<HTMLButtonElement>("[data-cbx-nav-line]");
@@ -345,7 +333,7 @@ function renderIndexBubble(s: PanelState): string {
       <div class="cbx-index-title">问题索引</div>
       <div class="cbx-index-meta">${current ? `${role} · ${mode} · ${safeIndex + 1}/${navCount}` : "暂无索引项"}</div>
       <div class="cbx-index-preview">${preview}</div>
-      <div class="cbx-index-hint">${current ? "点击卡片跳转到该位置" : "继续对话后会自动生成索引"}</div>
+      <div class="cbx-index-hint">${current ? "悬停导航预览，点击气泡跳转" : "继续对话后会自动生成索引"}</div>
     </div>
   `;
 }
@@ -353,9 +341,8 @@ function renderIndexBubble(s: PanelState): string {
 function renderIndexRailHtml(s: PanelState): string {
   const navCount = s.optimizedMessages.length;
   const safeIndex = clamp(optimizedNavIndex, 0, Math.max(navCount - 1, 0));
-  const activeMarker = messageIndexToMarker(safeIndex, navCount);
-  const markerLines = Array.from({ length: 5 }, (_, index) => {
-    const targetIndex = markerToMessageIndex(index, navCount);
+  const { targets, activeMarker } = buildContinuousRailTargets(safeIndex, navCount, 5);
+  const markerLines = targets.map((targetIndex, index) => {
     const active = index === activeMarker ? "cbx-index-line-active" : "";
     return `<button class="cbx-index-line ${active}" type="button" data-cbx-nav-line="${index}" data-cbx-target-index="${targetIndex}" aria-label="定位到第${targetIndex + 1}条"></button>`;
   }).join("");
@@ -400,18 +387,43 @@ function jumpByNav(offset: -1 | 1): void {
   renderState();
 }
 
-function messageIndexToMarker(index: number, total: number): number {
-  if (total <= 1) {
-    return 0;
-  }
-  return clamp(Math.round((index / (total - 1)) * 4), 0, 4);
+function showIndexBubble(): void {
+  clearBubbleHideTimer();
+  indexBubbleVisible = true;
+  setDetailVisible(true);
+  positionDetailPanel();
 }
 
-function markerToMessageIndex(marker: number, total: number): number {
-  if (total <= 1) {
-    return 0;
+function hideIndexBubbleSoon(): void {
+  clearBubbleHideTimer();
+  bubbleHideTimer = window.setTimeout(() => {
+    bubbleHideTimer = null;
+    indexBubbleVisible = false;
+    setDetailVisible(false);
+  }, 120);
+}
+
+function clearBubbleHideTimer(): void {
+  if (bubbleHideTimer === null) {
+    return;
   }
-  return clamp(Math.round((marker / 4) * (total - 1)), 0, total - 1);
+  window.clearTimeout(bubbleHideTimer);
+  bubbleHideTimer = null;
+}
+
+function buildContinuousRailTargets(centerIndex: number, total: number, slots: number): { targets: number[]; activeMarker: number } {
+  if (total <= 0 || slots <= 0) {
+    return { targets: [], activeMarker: 0 };
+  }
+  const visibleSlots = Math.min(slots, total);
+  const maxStart = Math.max(total - visibleSlots, 0);
+  const start = clamp(centerIndex - Math.floor(visibleSlots / 2), 0, maxStart);
+  const targets = Array.from({ length: visibleSlots }, (_, idx) => start + idx);
+  let activeMarker = targets.indexOf(centerIndex);
+  if (activeMarker < 0) {
+    activeMarker = clamp(Math.floor(visibleSlots / 2), 0, visibleSlots - 1);
+  }
+  return { targets, activeMarker };
 }
 
 function installDragAndSnap(hostEl: HTMLDivElement, anchor: HTMLButtonElement): () => void {
@@ -691,9 +703,6 @@ const styles = `
   width:28px;
   z-index:3;
   pointer-events:auto;
-}
-.cbx-tooltip{
-  display:none !important;
 }
 .cbx-detail{
   position:absolute;
